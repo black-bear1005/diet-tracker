@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>My Trae Project</title>
+    <!-- Bmob JS SDK 动态加载，避免浏览器 ORB/CORB 屏蔽 -->
+    <script>
+      (function() {
+        var urls = [
+          'https://bmob.github.io/lib/bmob-min.js',
+          'https://unpkg.com/bmob-js-sdk/dist/Bmob.min.js',
+          'https://cdn.jsdelivr.net/npm/bmob-js-sdk/dist/Bmob.min.js'
+        ];
+        function tryLoad(i) {
+          if (i >= urls.length) {
+            console.warn('Bmob SDK 加载失败，请检查网络或 CDN 访问策略');
+            return;
+          }
+          var s = document.createElement('script');
+          s.src = urls[i];
+          s.async = true;
+          s.crossOrigin = 'anonymous';
+          s.onload = function() {
+            try { window.dispatchEvent(new Event('bmob-ready')); } catch (e) {}
+          };
+          s.onerror = function() { tryLoad(i + 1); };
+          document.head.appendChild(s);
+        }
+        tryLoad(0);
+      })();
+    </script>
+
+    <script type="module">
+      if (import.meta.hot?.on) {
+        import.meta.hot.on('vite:error', (error) => {
+          if (error.err) {
+            console.error(
+              [error.err.message, error.err.frame].filter(Boolean).join('\n'),
+            )
+          }
+        })
+      }
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
