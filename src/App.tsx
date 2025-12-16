@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { UserProfile, DailyRecord } from './types';
 import { loadUserProfile, loadDailyRecords } from './utils/storage';
+import Auth from './components/Auth';
+import { getCurrentUser, logout } from './services/bmob';
 import { calculateMetrics } from './utils/calculations';
 import UserProfileComponent from './components/UserProfile';
 import DailyLogger from './components/DailyLogger';
@@ -17,22 +19,44 @@ function App() {
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [userMetrics, setUserMetrics] = useState<any>(null);
   const [loading, setLoading] = useState(false);
+  const [user, setUser] = useState<any | null>(getCurrentUser());
 
   useEffect(() => {
+    if (!user) {
+      setUserProfile(null);
+      setDailyRecords([]);
+      setUserMetrics(null);
+      return;
+    }
+
     (async () => {
       setLoading(true);
-      const profile = await loadUserProfile();
-      const records = await loadDailyRecords();
-      setUserProfile(profile);
-      setDailyRecords(records);
-      if (profile) {
-        const metrics = calculateMetrics(profile);
-        setUserMetrics(metrics);
-        setActiveTab('logger');
+      try {
+        const profile = await loadUserProfile();
+        const records = await loadDailyRecords();
+        setUserProfile(profile);
+        setDailyRecords(records);
+        if (profile) {
+          const metrics = calculateMetrics(profile);
+          setUserMetrics(metrics);
+          // 仅当之前没有选中 tab 时才自动跳转，避免刷新干扰
+          if (activeTab === 'profile' && profile.weight) {
+             setActiveTab('logger');
+          }
+        }
+      } catch (e) {
+        console.error('Failed to load user data:', e);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     })();
-  }, []);
+  }, [user]); // 依赖 user 变化，切换账号时自动重载
+
+  const handleLogout = () => {
+    logout();
+    setUser(null);
+    window.location.reload(); // 强制刷新页面，彻底清除内存状态
+  };
 
   const handleProfileUpdate = (profile: UserProfile) => {
     setUserProfile(profile);
@@ -47,6 +71,10 @@ function App() {
     { id: 'dashboard' as TabType, label: '数据看板', icon: BarChart3 }
   ];
 
+  if (!user) {
+    return <Auth onSuccess={() => { setUser(getCurrentUser()); }} />;
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
@@ -54,12 +82,10 @@ function App() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-4">
             <h1 className="text-2xl font-bold text-gray-900">减肥追踪看板</h1>
-            {userProfile && userMetrics && (
-              <div className="hidden md:flex items-center space-x-4 text-sm text-gray-600">
-                <span>BMI: {userMetrics.bmi.toFixed(1)} ({userMetrics.bmiCategory})</span>
-                <span>建议摄入: {userMetrics.dailyCalorieLimit.toFixed(0)} kcal</span>
-              </div>
-            )}
+            <button
+              onClick={handleLogout}
+              className="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-md"
+            >退出登录</button>
           </div>
         </div>
       </header>
@@ -186,7 +212,6 @@ function App() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           <div className="text-center text-sm text-gray-500">
             <p>减肥追踪看板 - 科学管理，健康减重</p>
-            <p className="mt-1">数据仅保存在本地浏览器，请定期备份重要数据</p>
           </div>
         </div>
       </footer>
