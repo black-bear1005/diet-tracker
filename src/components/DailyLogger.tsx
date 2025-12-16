@@ -5,6 +5,7 @@ import { DailyRecord, FoodItem, ExerciseItem } from '../types';
 import { updateDailyRecord, getDailyRecord } from '../utils/storage';
 import { estimateExerciseCalories } from '../utils/calculations';
 import { Calendar as CalendarIcon, Plus, Trash2, Utensils, Dumbbell, Scale, ChevronLeft, ChevronRight, RotateCcw } from 'lucide-react';
+import FoodSearchModal from './FoodSearchModal';
 
 interface DailyLoggerProps {
   userProfile: any;
@@ -20,7 +21,7 @@ const DailyLogger: React.FC<DailyLoggerProps> = ({ userProfile, selectedDate, on
     weight: undefined
   });
 
-  const [newFood, setNewFood] = useState({ name: '', calories: 0 });
+  const [isFoodModalOpen, setIsFoodModalOpen] = useState(false);
   const [newExercise, setNewExercise] = useState({ name: '', duration: 0, calories: 0 });
   const [currentWeekStart, setCurrentWeekStart] = useState(startOfWeek(selectedDate, { weekStartsOn: 0 }));
 
@@ -53,18 +54,10 @@ const DailyLogger: React.FC<DailyLoggerProps> = ({ userProfile, selectedDate, on
     return eachDayOfInterval({ start, end });
   };
 
-  const addFood = async () => {
-    if (newFood.name && newFood.calories > 0) {
-      const food: FoodItem = {
-        id: Date.now().toString(),
-        name: newFood.name,
-        calories: newFood.calories
-      };
-      const updatedRecord = { ...dailyRecord, foods: [...dailyRecord.foods, food] };
-      setDailyRecord(updatedRecord);
-      await updateDailyRecord(updatedRecord);
-      setNewFood({ name: '', calories: 0 });
-    }
+  const handleAddFood = async (food: FoodItem) => {
+    const updatedRecord = { ...dailyRecord, foods: [...dailyRecord.foods, food] };
+    setDailyRecord(updatedRecord);
+    await updateDailyRecord(updatedRecord);
   };
 
   const addExercise = async () => {
@@ -270,44 +263,37 @@ const DailyLogger: React.FC<DailyLoggerProps> = ({ userProfile, selectedDate, on
             </div>
           </div>
 
-          {/* Input Group */}
-          <div className="flex gap-2 mb-4">
-            <div className="flex-1 flex bg-gray-50 rounded-xl border border-gray-200 focus-within:ring-2 focus-within:ring-green-500 focus-within:border-transparent transition-all overflow-hidden">
-              <input
-                type="text"
-                placeholder="食物名称"
-                value={newFood.name}
-                onChange={(e) => setNewFood({ ...newFood, name: e.target.value })}
-                className="flex-1 px-4 py-3 bg-transparent focus:outline-none text-gray-700 min-w-0"
-              />
-              <div className="w-px bg-gray-200 my-2"></div>
-              <input
-                type="number"
-                placeholder="kcal"
-                value={newFood.calories || ''}
-                onChange={(e) => setNewFood({ ...newFood, calories: Number(e.target.value) })}
-                min="0"
-                className="w-20 px-3 py-3 bg-transparent focus:outline-none text-gray-700 text-center"
-              />
-            </div>
-            <button
-              onClick={addFood}
-              className="px-4 bg-green-500 text-white rounded-xl hover:bg-green-600 transition-colors shadow-sm active:scale-95 transform"
-            >
-              <Plus size={24} />
-            </button>
-          </div>
+          {/* Action Bar */}
+          <button
+            onClick={() => setIsFoodModalOpen(true)}
+            className="w-full mb-4 py-3 bg-green-50 text-green-600 rounded-xl border border-green-100 hover:bg-green-100 transition-colors flex items-center justify-center font-bold gap-2"
+          >
+            <Plus size={20} />
+            添加食物
+          </button>
 
           {/* List */}
-          <div className="space-y-2 max-h-60 overflow-y-auto custom-scrollbar">
+          <div className="space-y-2 max-h-96 overflow-y-auto custom-scrollbar">
             {dailyRecord.foods.map(food => (
               <div key={food.id} className="group flex justify-between items-center p-3 hover:bg-gray-50 rounded-xl border border-transparent hover:border-gray-100 transition-all">
-                <span className="font-medium text-gray-700">{food.name}</span>
+                <div>
+                  <div className="font-bold text-gray-700 flex items-center gap-2">
+                    {food.name}
+                    {food.servingSize && <span className="text-xs font-normal text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">{food.servingSize}</span>}
+                  </div>
+                  {(food.protein !== undefined || food.fat !== undefined || food.carbs !== undefined) && (
+                    <div className="text-xs text-gray-400 mt-1 flex gap-2">
+                      {food.protein !== undefined && <span>P: {food.protein}</span>}
+                      {food.fat !== undefined && <span>F: {food.fat}</span>}
+                      {food.carbs !== undefined && <span>C: {food.carbs}</span>}
+                    </div>
+                  )}
+                </div>
                 <div className="flex items-center gap-3">
-                  <span className="text-sm font-bold text-gray-600 bg-gray-100 px-2 py-1 rounded-md">{food.calories}</span>
+                  <span className="font-bold text-gray-700">{food.calories} <span className="text-xs font-normal text-gray-400">kcal</span></span>
                   <button
                     onClick={() => removeFood(food.id)}
-                    className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                    className="p-1.5 hover:bg-red-50 text-gray-300 hover:text-red-500 rounded-lg opacity-0 group-hover:opacity-100 transition-all"
                   >
                     <Trash2 size={16} />
                   </button>
@@ -315,7 +301,7 @@ const DailyLogger: React.FC<DailyLoggerProps> = ({ userProfile, selectedDate, on
               </div>
             ))}
             {dailyRecord.foods.length === 0 && (
-              <div className="text-center py-6 text-gray-400 text-sm">
+              <div className="text-center py-8 bg-gray-50 rounded-xl border border-dashed border-gray-200 text-gray-400 text-sm">
                 暂无记录，快去添加第一餐吧
               </div>
             )}
@@ -402,6 +388,12 @@ const DailyLogger: React.FC<DailyLoggerProps> = ({ userProfile, selectedDate, on
           </div>
         </div>
       </div>
+      
+      <FoodSearchModal
+        isOpen={isFoodModalOpen}
+        onClose={() => setIsFoodModalOpen(false)}
+        onSave={handleAddFood}
+      />
     </div>
   );
 };

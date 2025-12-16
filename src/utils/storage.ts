@@ -6,14 +6,25 @@ import {
   updateUserProfileFields,
   getOrCreateDailyLog as getOrCreateDailyLogBackend,
   updateDailyLogFields,
-  fetchAllDailyLogs
+  fetchAllDailyLogs,
+  logout,
+  getCurrentUser,
+  seedFoodLibrary
 } from '../services/bmob';
+import foodData from './foodData.json';
 
 initBmob();
 if (typeof window !== 'undefined') {
   window.addEventListener('bmob-ready', () => {
     initBmob();
   });
+  
+  // 临时：每次加载时尝试初始化食物库
+  // 在实际生产中，这应该由管理员触发，或者只在 dev 环境运行
+  // 但为了满足用户需求，我们在这里调用它
+  setTimeout(() => {
+      seedFoodLibrary(foodData).catch(err => console.error('Food seeding failed:', err));
+  }, 3000);
 }
 
 const calcAgeFromBirthday = (birthday?: string): number | null => {
@@ -30,14 +41,14 @@ const calcAgeFromBirthday = (birthday?: string): number | null => {
 const mapBackendProfileToUserProfile = async (): Promise<UserProfile> => {
   const p = await getOrCreateUserProfileBackend();
   const age = calcAgeFromBirthday(p.birthday) ?? 25;
-  // 尝试用最近一条体重作为当前体重（取最后一条）
   const logs = await fetchAllDailyLogs(10);
   const latestWeight = logs.length ? (logs[logs.length - 1].weight ?? 70) : 70;
+  const effectiveWeight = p.weight && p.weight > 0 ? p.weight : latestWeight;
   return {
     gender: p.gender === 'female' ? 'female' : 'male',
     age,
     height: p.height,
-    weight: latestWeight,
+    weight: effectiveWeight,
     activityLevel: p.activityLevel,
     calorieDeficit: p.targetDeficit
   };
@@ -48,7 +59,12 @@ const mapBackendDailyToRecord = (d: any): DailyRecord => {
     ? d.foodIntake.map((it: any, idx: number) => ({
         id: `${d.objectId || 'row'}-f-${idx}-${Date.now()}`,
         name: it.name || it.title || '食物',
-        calories: Number(it.kcal || it.calories || 0)
+        calories: Number(it.kcal || it.calories || 0),
+        protein: it.protein ? Number(it.protein) : undefined,
+        fat: it.fat ? Number(it.fat) : undefined,
+        carbs: it.carbs ? Number(it.carbs) : undefined,
+        servingSize: it.servingSize,
+        unit: it.unit
       }))
     : [];
 
@@ -73,7 +89,15 @@ const mapRecordToBackendDailyFields = (record: DailyRecord) => {
   return {
     date: record.date,
     weight: record.weight ?? null,
-    foodIntake: (record.foods || []).map(f => ({ name: f.name, kcal: f.calories })),
+    foodIntake: (record.foods || []).map(f => ({
+      name: f.name,
+      kcal: f.calories,
+      protein: f.protein,
+      fat: f.fat,
+      carbs: f.carbs,
+      servingSize: f.servingSize,
+      unit: f.unit
+    })),
     exercise: (record.exercises || []).map(e => ({ type: e.name, mins: e.duration, kcal: e.calories }))
   };
 };
@@ -81,9 +105,15 @@ const mapRecordToBackendDailyFields = (record: DailyRecord) => {
 export const loadUserProfile = async (): Promise<UserProfile | null> => {
   if (!isBmobReady()) return null;
   try {
+    // 仅在已登录情况下加载
+    if (!getCurrentUser()) return null;
     return await mapBackendProfileToUserProfile();
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error loading user profile from Bmob:', error);
+    if (error?.status === 401 || String(error?.message || '').includes('401')) {
+      logout();
+      return null;
+    }
     return null;
   }
 };
@@ -92,12 +122,16 @@ export const saveUserProfile = async (profile: UserProfile): Promise<void> => {
   if (!isBmobReady()) return;
   try {
     const backend = await getOrCreateUserProfileBackend();
+    const currentYear = new Date().getFullYear();
+    const birthdayYear = Math.max(1900, currentYear - (profile.age || 0));
+    const birthday = `${birthdayYear}-01-01`;
     await updateUserProfileFields(backend, {
       gender: profile.gender,
       height: profile.height,
       targetDeficit: profile.calorieDeficit,
-      activityLevel: profile.activityLevel
-      // birthday 不从 age 反推，保留已有 birthday
+      activityLevel: profile.activityLevel,
+      birthday,
+      weight: profile.weight
     });
   } catch (error) {
     console.error('Error saving user profile to Bmob:', error);
@@ -107,6 +141,7 @@ export const saveUserProfile = async (profile: UserProfile): Promise<void> => {
 export const loadDailyRecords = async (): Promise<DailyRecord[]> => {
   if (!isBmobReady()) return [];
   try {
+    if (!getCurrentUser()) return [];
     const rows = await fetchAllDailyLogs(120);
     return rows.map(mapBackendDailyToRecord);
   } catch (error) {
@@ -118,6 +153,7 @@ export const loadDailyRecords = async (): Promise<DailyRecord[]> => {
 export const getDailyRecord = async (date: string): Promise<DailyRecord | undefined> => {
   if (!isBmobReady()) return undefined;
   try {
+    if (!getCurrentUser()) return undefined;
     const daily = await getOrCreateDailyLogBackend(date);
     return mapBackendDailyToRecord(daily);
   } catch (error) {
@@ -129,6 +165,7 @@ export const getDailyRecord = async (date: string): Promise<DailyRecord | undefi
 export const updateDailyRecord = async (record: DailyRecord): Promise<void> => {
   if (!isBmobReady()) return;
   try {
+    if (!getCurrentUser()) return;
     const daily = await getOrCreateDailyLogBackend(record.date);
     const fields = mapRecordToBackendDailyFields(record);
     await updateDailyLogFields(daily, fields as any);

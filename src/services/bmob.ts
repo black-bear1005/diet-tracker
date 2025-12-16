@@ -280,6 +280,103 @@ export const login = async (username: string, password: string) => {
   return user;
 };
 
+// ==================== 食物库逻辑 ====================
+
+export interface FoodLibraryItem {
+  objectId?: string;
+  name: string;
+  calories: number;
+  protein: number;
+  fat: number;
+  carbs: number;
+  unit: string;
+}
+
+// 内存缓存，避免频繁请求后端导致的搜索失败
+let foodLibraryCache: FoodLibraryItem[] | null = null;
+
+export const searchFoodLibrary = async (keyword: string): Promise<FoodLibraryItem[]> => {
+  // 1. 如果缓存为空，一次性拉取所有数据（目前数据量 < 500，前端过滤体验极佳且绝对稳定）
+  if (!foodLibraryCache) {
+    try {
+      console.log('📦 [FoodLibrary] 正在拉取全量数据建立缓存...');
+      // 加上时间戳防止 HTTP 缓存
+      const list = await safeQuery(`/classes/FoodLibrary?limit=500&_t=${Date.now()}`);
+      if (Array.isArray(list.results)) {
+        foodLibraryCache = list.results;
+        console.log(`✅ [FoodLibrary] 缓存建立成功，共 ${foodLibraryCache.length} 条数据`);
+      } else {
+        foodLibraryCache = [];
+      }
+    } catch (e) {
+      console.error('❌ [FoodLibrary] 拉取数据失败', e);
+      return [];
+    }
+  }
+
+  if (!keyword) return [];
+
+  // 2. 前端纯内存过滤，速度快且无视后端正则兼容性问题
+  const lowerKeyword = keyword.toLowerCase().trim();
+  return (foodLibraryCache || []).filter(item => 
+    item.name && item.name.toLowerCase().includes(lowerKeyword)
+  );
+};
+
+export const seedFoodLibrary = async (data: any[]): Promise<void> => {
+  if (!isBmobReady()) return;
+  
+  // 1. 获取现有数据的名称列表，用于去重
+  // 我们获取前 500 条数据的 name 字段，这对于目前的 ~100 条数据足够了
+  const existing = await safeQuery('/classes/FoodLibrary?limit=500&keys=name');
+  const existingNames = new Set(Array.isArray(existing.results) ? existing.results.map((r: any) => r.name) : []);
+
+  if (existingNames.size >= data.length) {
+    console.log('🍎 [FoodLibrary] 数据完整，跳过初始化');
+    return;
+  }
+
+  console.log(`🚀 [FoodLibrary] 检测到数据缺失 (现有 ${existingNames.size}/${data.length})，开始补充...`);
+  
+  // 2. 过滤出未入库的数据
+  const toInsert = data.filter(d => !existingNames.has(d.name));
+  
+  if (toInsert.length === 0) return;
+
+  // 3. 构造批量请求
+  const requests = toInsert.map(item => ({
+    method: 'POST',
+    path: '/1/classes/FoodLibrary', // 注意：Batch 请求中 path 需要包含版本号 /1
+    body: {
+      ...item,
+      ACL: { "*": { "read": true }, "role:admin": { "write": true } } // 公开读，管理员写
+    }
+  }));
+
+  // 4. Bmob 批量操作接口 /batch (分批处理，每次50个)
+  const batchUrl = `${BMOB_BASE}/batch`;
+  for (let i = 0; i < requests.length; i += 50) {
+    const chunk = requests.slice(i, i + 50);
+    try {
+        const res = await rest('/batch', {
+            method: 'POST',
+            body: JSON.stringify({ requests: chunk })
+        });
+        
+        // 检查返回结果中是否有错误
+        const errors = Array.isArray(res) ? res.filter((r: any) => r.error) : [];
+        if (errors.length > 0) {
+            console.error(`⚠️ [FoodLibrary] 批次 ${i/50 + 1} 部分写入失败:`, errors[0].error);
+        } else {
+            console.log(`✅ [FoodLibrary] 批次 ${i/50 + 1} 写入完成 (包含 ${chunk.length} 条)`);
+        }
+    } catch (e) {
+        console.error(`❌ [FoodLibrary] 批次 ${i/50 + 1} 写入失败`, e);
+    }
+  }
+  console.log('✨ [FoodLibrary] 增量更新完成');
+};
+
 export const register = async (username: string, password: string, email?: string) => {
   logout();
   const user = await rest('/users', {
