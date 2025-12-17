@@ -50,7 +50,10 @@ const mapBackendProfileToUserProfile = async (): Promise<UserProfile> => {
     height: p.height,
     weight: effectiveWeight,
     activityLevel: p.activityLevel,
-    calorieDeficit: p.targetDeficit
+    calorieDeficit: p.targetDeficit,
+    partnerId: p.partnerId,
+    partnerName: p.partnerName,
+    points: p.points ?? 100
   };
 };
 

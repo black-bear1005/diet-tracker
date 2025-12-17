@@ -5,12 +5,30 @@ export interface UserProfile {
   weight: number; // kg
   activityLevel: number; // 1.2, 1.375, 1.55, etc.
   calorieDeficit: number; // default 500 kcal
+  points?: number;
+  partnerId?: string;
+  partnerName?: string;
 }
 
 export interface FoodItem {
   id: string;
   name: string;
   calories: number;
+  protein?: number;
+  fat?: number;
+  carbs?: number;
+  servingSize?: string; // e.g. "1.5份" or "150克"
+  unit?: string;
+}
+
+export interface FoodLibraryItem {
+  objectId?: string;
+  name: string;
+  calories: number;
+  protein: number;
+  fat: number;
+  carbs: number;
+  unit: string;
 }
 
 export interface ExerciseItem {

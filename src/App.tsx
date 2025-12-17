@@ -7,10 +7,14 @@ import { calculateMetrics } from './utils/calculations';
 import UserProfileComponent from './components/UserProfile';
 import DailyLogger from './components/DailyLogger';
 import Dashboard from './components/Dashboard';
+import TodoList from './components/TodoList';
+import NotificationCenter from './components/NotificationCenter';
 import { format } from 'date-fns';
-import { User, Calendar, BarChart3 } from 'lucide-react';
+import { User, Calendar, BarChart3, CheckSquare } from 'lucide-react';
 
-type TabType = 'profile' | 'logger' | 'dashboard';
+import { ToastProvider } from './components/Toast';
+
+type TabType = 'profile' | 'logger' | 'dashboard' | 'todo';
 
 function App() {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
@@ -68,24 +72,35 @@ function App() {
   const tabs = [
     { id: 'profile' as TabType, label: '个人档案', icon: User },
     { id: 'logger' as TabType, label: '每日记录', icon: Calendar },
-    { id: 'dashboard' as TabType, label: '数据看板', icon: BarChart3 }
+    { id: 'dashboard' as TabType, label: '数据看板', icon: BarChart3 },
+    { id: 'todo' as TabType, label: '今日待办', icon: CheckSquare }
   ];
 
   if (!user) {
-    return <Auth onSuccess={() => { setUser(getCurrentUser()); }} />;
+    return (
+      <ToastProvider>
+        <Auth onSuccess={() => { setUser(getCurrentUser()); }} />
+      </ToastProvider>
+    );
   }
 
   return (
+    <ToastProvider>
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <header className="bg-white shadow-sm border-b">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-4">
             <h1 className="text-2xl font-bold text-gray-900">减肥追踪看板</h1>
-            <button
-              onClick={handleLogout}
-              className="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-md"
-            >退出登录</button>
+            <div className="flex items-center gap-4">
+                {user && (
+                    <NotificationCenter onProfileUpdate={handleProfileUpdate} />
+                )}
+                <button
+                    onClick={handleLogout}
+                    className="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-md"
+                >退出登录</button>
+            </div>
           </div>
         </div>
       </header>
@@ -190,6 +205,13 @@ function App() {
           />
         )}
 
+        {activeTab === 'todo' && userProfile && (
+          <TodoList
+            selectedDate={selectedDate}
+            onDateChange={setSelectedDate}
+          />
+        )}
+
         {!userProfile && activeTab !== 'profile' && (
           <div className="text-center py-12">
             <div className="text-gray-500 mb-4">
@@ -216,6 +238,7 @@ function App() {
         </div>
       </footer>
     </div>
+    </ToastProvider>
   );
 }
 

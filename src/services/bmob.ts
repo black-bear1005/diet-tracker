@@ -22,6 +22,7 @@ export const initBmob = (): void => { if (!isBmobReady()) console.warn('Bmob Key
 export interface BackendUserProfile {
   objectId?: string;
   userId: string;
+  username?: string; // 冗余存储用户名，用于搜索
   user?: { __type: 'Pointer'; className: '_User'; objectId: string };
   gender: 'male' | 'female' | string;
   height: number;
@@ -29,6 +30,9 @@ export interface BackendUserProfile {
   targetDeficit: number;
   activityLevel: number;
   weight?: number;
+  partnerId?: string;
+  partnerName?: string;
+  points?: number;
 }
 
 export interface BackendDailyLog {
@@ -41,8 +45,20 @@ export interface BackendDailyLog {
   exercise: Array<{ type?: string; name?: string; mins?: number; kcal: number }>;
 }
 
+export interface BackendNotification {
+    objectId?: string;
+    userId: string; // 接收通知的人
+    type: 'bind_request' | 'bind_accepted' | 'task_completed' | 'task_submitted' | 'task_rejected' | 'task_expired' | 'system';
+    title: string;
+    content: string;
+    isRead: boolean;
+    relatedId?: string; // 关联ID
+    extraData?: any;
+    createdAt?: string;
+}
+
 const getSessionToken = () => { try { return localStorage.getItem(LS_KEYS.sessionToken); } catch { return null; } };
-const getCurrentUserId = () => {
+export const getCurrentUserId = () => {
   try { return localStorage.getItem(LS_KEYS.currentUserId) || localStorage.getItem(LS_KEYS.currentUserCompatId); } catch { return null; }
 };
 
@@ -107,12 +123,12 @@ const rest = async (path: string, init: RequestInit = {}) => {
     const text = await res.text();
     try {
       const errObj = JSON.parse(text);
-      if (errObj.code === 101) throw new Error('BMOB_CLASS_NOT_FOUND');
+      if (errObj.code === 101) throw new Error(`BMOB_CLASS_NOT_FOUND: ${path}`);
       if (res.status === 401) logout();
-      throw new Error(`Bmob Error ${res.status}: ${errObj.error || text}`);
+      throw new Error(`Bmob Error ${res.status} [${path}]: ${errObj.error || text}`);
     } catch (e: any) {
-      if (e.message === 'BMOB_CLASS_NOT_FOUND') throw e;
-      throw new Error(`Bmob Error ${res.status}: ${text}`);
+      if (e.message.includes('BMOB_CLASS_NOT_FOUND')) throw e;
+      throw new Error(`Bmob Error ${res.status} [${path}]: ${text}`);
     }
   }
   return res.json();
@@ -121,7 +137,7 @@ const rest = async (path: string, init: RequestInit = {}) => {
 const safeQuery = async (path: string) => {
   try { return await rest(path, { method: 'GET' }); } 
   catch (err: any) {
-    if (err.message === 'BMOB_CLASS_NOT_FOUND') return { results: [] };
+    if (err.message.includes('BMOB_CLASS_NOT_FOUND')) return { results: [] };
     throw err;
   }
 };
@@ -130,6 +146,7 @@ const safeQuery = async (path: string) => {
 
 export const getOrCreateUserProfile = async (): Promise<BackendUserProfile> => {
   const uid = getCurrentUserId();
+  const currentUser = getCurrentUser();
   console.log('🔍 [Profile] 查询身份:', uid);
   if (!uid) throw new Error('User not logged in');
 
@@ -150,14 +167,54 @@ export const getOrCreateUserProfile = async (): Promise<BackendUserProfile> => {
 
   if (profile) {
     console.log('✅ [Profile] 找到匹配档案:', profile.objectId);
+    // 检查是否需要补全 username 或修复 ACL (老数据可能没有 username 或 ACL 为私有)
+    // 强制每次检查并更新，确保该用户的 Profile 是公有读的，这样才能被搜到
+    if (currentUser?.username) {
+        const needsUpdate = !profile.username || profile.username !== currentUser.username;
+        // 即使 username 没变，我们也希望能刷新 ACL，但为了避免每次都请求，我们可以加一个 localStorage 标记
+        // 或者简单粗暴一点：只要 username 不存在就刷。
+        // 但问题是：之前只刷了 username 没刷 ACL 的用户怎么办？
+        // 方案：我们引入一个特殊字段或者只是简单的总是尝试更新 ACL（只要不是刚更新过）
+        
+        // 这里我们选择：只要当前 session 没更新过，就更新一次。
+        const aclUpdateKey = `bmob_acl_fixed_${profile.objectId}`;
+        const hasFixedAcl = sessionStorage.getItem(aclUpdateKey);
+
+        if (needsUpdate || !hasFixedAcl) {
+            console.log('🔧 [Profile] 同步 username 并修复 ACL 为公有读');
+            
+            // 构造 ACL: 公有读，自己写，如果有伴侣，伴侣也可以写 (用于积分奖励)
+            const newACL: any = { "*": { "read": true }, [uid]: { "write": true } };
+            if (profile.partnerId) {
+                newACL[profile.partnerId] = { "write": true };
+            }
+
+            try {
+                await rest(`/classes/UserProfile_v2/${profile.objectId}`, {
+                    method: 'PUT',
+                    body: JSON.stringify({ 
+                        username: currentUser.username,
+                        ACL: newACL
+                    })
+                });
+                profile.username = currentUser.username;
+                sessionStorage.setItem(aclUpdateKey, 'true');
+            } catch (e) {
+                console.warn('同步 Profile/ACL 失败', e);
+            }
+        }
+    }
     return profile;
   }
   
   console.log('✨ [Profile] 未找到匹配档案，创建新档案 for:', uid);
+  
+  // 初始创建时的 ACL: 公有读，自己写。伴侣 ID 此时还不存在，等绑定后再更新。
   const saved = await rest('/classes/UserProfile_v2', {
     method: 'POST',
     body: JSON.stringify({
       userId: uid,
+      username: currentUser?.username || 'Unknown', // 写入用户名
       user: { __type: 'Pointer', className: '_User', objectId: uid },
       gender: 'male',
       height: 170,
@@ -165,7 +222,9 @@ export const getOrCreateUserProfile = async (): Promise<BackendUserProfile> => {
       targetDeficit: 500,
       activityLevel: 1.375,
       weight: 70, // 默认体重
-      ACL: { [uid]: { read: true, write: true } }
+      points: 100, // 默认积分
+      // ACL: 公有读，私有写 (允许其他人查询到该用户的档案以进行绑定)
+      ACL: { "*": { "read": true }, [uid]: { "write": true } }
     })
   });
   return await rest(`/classes/UserProfile_v2/${saved.objectId}`, { method: 'GET' });
@@ -377,6 +436,477 @@ export const seedFoodLibrary = async (data: any[]): Promise<void> => {
   console.log('✨ [FoodLibrary] 增量更新完成');
 };
 
+export interface BackendTodo {
+  objectId?: string;
+  userId: string;
+  date: string; // YYYY-MM-DD
+  content: string;
+  isCompleted?: boolean; // Deprecated
+  status?: 'pending' | 'completed' | 'expired' | 'pending_approval';
+  assigneeId?: string;
+  creatorId?: string;
+  rewardPoints?: number;
+}
+
+export const getTodos = async (date: string): Promise<BackendTodo[]> => {
+  const uid = getCurrentUserId();
+  if (!uid) return [];
+
+  // 查询：我是创建者 OR 我是执行者
+  // Bmob OR 查询语法: where={"$or":[{"userId":"me"},{"assigneeId":"me"}]}
+  const queryObj = {
+    date,
+    "$or": [
+        { "userId": uid },
+        { "assigneeId": uid }
+    ]
+  };
+  const query = encodeURIComponent(JSON.stringify(queryObj));
+  // 按创建时间升序排列，即新添加的在后面
+  const list = await safeQuery(`/classes/Todo?where=${query}&order=createdAt&limit=100`);
+  
+  if (!Array.isArray(list.results)) return [];
+  
+  return list.results.map((todo: any) => ({
+      ...todo,
+      // 兼容旧数据
+      status: todo.status || (todo.isCompleted ? 'completed' : 'pending'),
+      creatorId: todo.creatorId || todo.userId
+  }));
+};
+
+export const addTodo = async (date: string, content: string): Promise<BackendTodo> => {
+  // Simple add (self-assigned)
+  return createAssignedTodo({
+      date,
+      content,
+      rewardPoints: 0,
+      assigneeId: getCurrentUserId()
+  });
+};
+
+export const createAssignedTodo = async (todoData: {
+    date: string; 
+    content: string; 
+    rewardPoints: number; 
+    assigneeId?: string; 
+}): Promise<BackendTodo> => {
+  const uid = getCurrentUserId();
+  if (!uid) throw new Error('User not logged in');
+
+  const assigneeId = todoData.assigneeId || uid;
+  const reward = todoData.rewardPoints || 0;
+
+  // 1. 扣除积分 (如果悬赏 > 0)
+  if (reward > 0) {
+      const profile = await getOrCreateUserProfile();
+      if ((profile.points || 0) < reward) {
+          throw new Error('积分不足');
+      }
+      await updateUserProfileFields(profile, { points: (profile.points || 0) - reward });
+  }
+
+  // 2. 创建 Todo
+  // ACL: 创建者和执行者都有权读写
+  const acl: any = { [uid]: { read: true, write: true } };
+  if (assigneeId !== uid) {
+      acl[assigneeId] = { read: true, write: true };
+  }
+
+  const saved = await rest('/classes/Todo', {
+    method: 'POST',
+    body: JSON.stringify({
+      userId: uid, // Owner/Creator
+      creatorId: uid,
+      assigneeId,
+      date: todoData.date,
+      content: todoData.content,
+      rewardPoints: reward,
+      status: 'pending',
+      isCompleted: false, // Compat
+      ACL: acl
+    })
+  });
+  
+  return {
+    objectId: saved.objectId,
+    userId: uid,
+    creatorId: uid,
+    assigneeId,
+    date: todoData.date,
+    content: todoData.content,
+    rewardPoints: reward,
+    status: 'pending',
+    isCompleted: false
+  };
+};
+
+export const toggleTodo = async (todo: BackendTodo): Promise<void> => {
+    // Deprecated, redirect to completeTodo
+    if (todo.status !== 'completed') {
+        await completeTodo(todo);
+    }
+};
+
+export const submitTaskCompletion = async (todo: BackendTodo): Promise<void> => {
+    if (!todo.objectId) return;
+    const uid = getCurrentUserId();
+    if (!uid) throw new Error('Not logged in');
+
+    // 只有 assignee 可以提交任务
+    if (todo.assigneeId && todo.assigneeId !== uid) {
+        throw new Error('只有被指派人才能提交此任务');
+    }
+
+    // 更新状态为待确认
+    await rest(`/classes/Todo/${todo.objectId}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+            status: 'pending_approval'
+        })
+    });
+
+    // 通知创建者 (如果不是自己)
+    if (todo.creatorId && todo.creatorId !== uid) {
+        try {
+            const currentUser = getCurrentUser();
+            await sendNotification(
+                todo.creatorId,
+                'task_submitted',
+                '任务待验收',
+                `${currentUser?.username || '伴侣'} 完成了任务“${todo.content}”，请验收！`,
+                todo.objectId
+            );
+        } catch (e) {
+            console.warn('通知发送失败，但不影响任务提交', e);
+        }
+    }
+};
+
+export const approveTaskCompletion = async (todo: BackendTodo): Promise<void> => {
+    if (!todo.objectId) return;
+    const uid = getCurrentUserId();
+    if (!uid) throw new Error('Not logged in');
+
+    // 只有 creator 可以验收任务
+    if (todo.creatorId && todo.creatorId !== uid) {
+        throw new Error('只有发布人才能验收此任务');
+    }
+
+    // 1. 更新状态
+    await rest(`/classes/Todo/${todo.objectId}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+            status: 'completed',
+            isCompleted: true
+        })
+    });
+
+    // 2. 发放奖励 (如果 reward > 0 且 assignee 存在)
+    if (todo.rewardPoints && todo.rewardPoints > 0 && todo.assigneeId) {
+        // 获取 Assignee 的 Profile
+        const query = encodeURIComponent(JSON.stringify({ userId: todo.assigneeId }));
+        const list = await safeQuery(`/classes/UserProfile_v2?where=${query}&limit=1`);
+        
+        if (Array.isArray(list.results) && list.results.length > 0) {
+            const assigneeProfile = list.results[0];
+            // 修正：使用 rest 直接调用，绕过 updateUserProfileFields 的本地所有权检查
+            // 因为此时是 Creator 给 Assignee 发分，userId 不一致是预期的
+            try {
+                await rest(`/classes/UserProfile_v2/${assigneeProfile.objectId}`, {
+                    method: 'PUT',
+                    body: JSON.stringify({
+                        points: (assigneeProfile.points || 0) + todo.rewardPoints
+                    })
+                });
+            } catch (e) {
+                console.warn('积分发放失败 (可能是权限不足，对方需登录 App 以更新 ACL)', e);
+                // 这里我们吞掉错误，不让整个验收流程失败。
+                // 此时任务状态已变更为 completed，只是积分没加上。
+                // 这比任务卡在“待验收”且报错要好。
+            }
+        } else {
+            console.warn('未找到 Assignee Profile，无法发放积分');
+        }
+    }
+
+    // 3. 发送通知 (如果 assignee 不是自己)
+    if (todo.assigneeId && todo.assigneeId !== uid) {
+        try {
+            await sendNotification(
+                todo.assigneeId,
+                'task_completed',
+                '任务已验收',
+                `任务“${todo.content}”已通过验收，获得 ${todo.rewardPoints || 0} 积分`,
+                todo.objectId
+            );
+        } catch (e) {
+            console.warn('通知发送失败，但不影响任务验收', e);
+        }
+    }
+};
+
+export const rejectTaskCompletion = async (todo: BackendTodo): Promise<void> => {
+    if (!todo.objectId) return;
+    const uid = getCurrentUserId();
+    if (!uid) throw new Error('Not logged in');
+
+    if (todo.creatorId && todo.creatorId !== uid) {
+        throw new Error('只有发布人才能操作');
+    }
+
+    // 退回状态为 pending
+    await rest(`/classes/Todo/${todo.objectId}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+            status: 'pending'
+        })
+    });
+
+    // 通知 assignee
+    if (todo.assigneeId && todo.assigneeId !== uid) {
+        try {
+            await sendNotification(
+                todo.assigneeId,
+                'task_rejected',
+                '任务未通过',
+                `任务“${todo.content}”未通过验收，请重新确认`,
+                todo.objectId
+            );
+        } catch (e) {
+            console.warn('通知发送失败，但不影响任务驳回', e);
+        }
+    }
+};
+
+export const completeTodo = async (todo: BackendTodo): Promise<void> => {
+  // Legacy support or simple self-task completion
+  if (!todo.objectId) return;
+  
+  // 如果是需要走验收流程的任务 (assignee != creator)，转交给 submitTaskCompletion
+  // 但这里需要判断当前是 Creator 还是 Assignee 调用
+  // 如果是 Creator 自己完成自己的任务，直接 complete
+  // 如果是 Assignee 完成 Partner 的任务，走 submit
+  
+  const uid = getCurrentUserId();
+  if (!uid) throw new Error('Not logged in');
+
+  if (todo.creatorId && todo.assigneeId && todo.creatorId !== todo.assigneeId) {
+      if (uid === todo.assigneeId) {
+          // 我是被指派人 -> 提交验收
+          return submitTaskCompletion(todo);
+      } else if (uid === todo.creatorId) {
+          // 我是创建人 -> 直接验收 (可能用于强制完成)
+          return approveTaskCompletion(todo);
+      }
+  }
+
+  // 正常流程 (自己给自己布置的任务)
+  if (todo.assigneeId && todo.assigneeId !== uid) {
+      throw new Error('只有被指派人才能完成此任务');
+  }
+
+  // 1. 更新状态
+  await rest(`/classes/Todo/${todo.objectId}`, {
+    method: 'PUT',
+    body: JSON.stringify({
+      status: 'completed',
+      isCompleted: true
+    })
+  });
+
+  // 2. 发放奖励 (如果 reward > 0 且 assignee 存在)
+  if (todo.rewardPoints && todo.rewardPoints > 0) {
+      const assigneeProfile = await getOrCreateUserProfile(); // 假设当前用户就是 assignee
+      await updateUserProfileFields(assigneeProfile, { 
+          points: (assigneeProfile.points || 0) + todo.rewardPoints 
+      });
+  }
+};
+
+export const bindPartner = async (targetUsername: string): Promise<void> => {
+    const currentUser = getCurrentUser();
+    const uid = getCurrentUserId();
+    if (!currentUser || !uid) throw new Error('未登录');
+
+    // 🔴 防止绑定自己 (用户名检查)
+    if (targetUsername === currentUser.username) {
+        throw new Error('不能绑定自己为情侣哦！');
+    }
+
+    // 1. 获取自己的最新名字 (可选，为了保险)
+    // 2. 在 UserProfile 表中搜索目标用户名
+    const query = encodeURIComponent(JSON.stringify({ username: targetUsername }));
+    
+    // 使用 try-catch 捕获 101 错误
+    let list;
+    try {
+      list = await rest(`/classes/UserProfile_v2?where=${query}&limit=1`, { method: 'GET' });
+    } catch (e: any) {
+      // 如果表不存在(101)，说明对方还没注册过 App
+      if (e.message === 'BMOB_CLASS_NOT_FOUND') {
+         throw new Error('找不到该用户：对方可能还未登录过 App');
+      }
+      throw e;
+    }
+
+    if (!list.results || list.results.length === 0) {
+      throw new Error('找不到该用户。若确认用户名无误，请让对方先登录一次 App 以同步数据。');
+    }
+
+    const targetProfile = list.results[0];
+
+    // 🔴 防止绑定自己 (ID检查)
+    if (targetProfile.userId === uid) {
+        throw new Error('不能绑定自己为情侣哦！');
+    }
+    
+    // 3. 发送通知
+    await sendNotification(
+      targetProfile.userId, // 注意：这里是对方的 userId (不是 objectId)
+      'bind_request',
+      '情侣绑定邀请',
+      `${currentUser.username} 想与你绑定情侣关系`,
+      uid // 关联 ID 传自己的 User ID
+    );
+};
+
+export const confirmBind = async (requesterId: string, notificationId: string, requesterName: string): Promise<void> => {
+    const currentUserId = getCurrentUserId();
+    const currentUser = getCurrentUser(); 
+    
+    if (!currentUserId) throw new Error('未登录');
+
+    // 步骤 1: 查询发起人 (A) 的档案
+    // 由于 ACL 已改为公有读，这里可以直接查询到
+    const requesterProfileQuery = encodeURIComponent(JSON.stringify({ userId: requesterId }));
+    const requesterProfileList = await safeQuery(`/classes/UserProfile_v2?where=${requesterProfileQuery}&limit=1`);
+    
+    // 如果查不到对方档案，说明对方可能还没升级到新 ACL 或未创建档案
+    // 但即使如此，我们仍可以先完成自己这边的绑定，并通知对方
+    // 尝试获取对方真实昵称 (从 User 表)
+    let realRequesterName = requesterName;
+    try {
+        const requesterUser = await rest(`/users/${requesterId}`, { method: 'GET' });
+        if (requesterUser && requesterUser.username) {
+            realRequesterName = requesterUser.username;
+        }
+    } catch (e) {
+        console.warn('获取发起人真实用户名失败，使用默认值', e);
+    }
+
+    // 步骤 2: 更新当前用户 (B) 的档案
+    const myProfile = await getOrCreateUserProfile();
+    await updateUserProfileFields(myProfile, { 
+        partnerId: requesterId,
+        partnerName: realRequesterName 
+    });
+
+    // 步骤 3: 给发起人 (A) 发送 'bind_accepted' 通知
+    // 注意：不再直接修改 A 的档案，因为没有写权限
+    await sendNotification(
+        requesterId,
+        'bind_accepted',
+        '绑定成功',
+        `${currentUser?.username || '对方'} 已同意绑定，点击生效！`,
+        currentUserId
+    );
+
+    // 步骤 4: 删除原有的请求通知
+    await deleteNotification(notificationId);
+};
+
+export const finalizeBind = async (partnerId: string, partnerName: string, notificationId: string): Promise<void> => {
+    const uid = getCurrentUserId();
+    if (!uid) throw new Error('Not logged in');
+
+    // 尝试获取对方真实昵称 (从 User 表)
+    let realPartnerName = partnerName;
+    try {
+        const partnerUser = await rest(`/users/${partnerId}`, { method: 'GET' });
+        if (partnerUser && partnerUser.username) {
+            realPartnerName = partnerUser.username;
+        }
+    } catch (e) {
+        console.warn('获取对方真实用户名失败，使用默认值', e);
+    }
+
+    // 1. 更新当前用户 (A) 的档案
+    const myProfile = await getOrCreateUserProfile();
+    await updateUserProfileFields(myProfile, {
+        partnerId: partnerId,
+        partnerName: realPartnerName
+    });
+
+    // 2. 删除 'bind_accepted' 通知
+    await deleteNotification(notificationId);
+};
+
+import { subDays, startOfDay, isBefore, parseISO } from 'date-fns';
+
+export const processExpiredTasks = async (): Promise<void> => {
+    const uid = getCurrentUserId();
+    if (!uid) return;
+
+    const todayStr = new Date().toISOString().split('T')[0];
+    
+    const queryObj = {
+        userId: uid, // 我创建的
+        status: 'pending',
+        date: { "$lt": todayStr }
+    };
+    const query = encodeURIComponent(JSON.stringify(queryObj));
+    const list = await safeQuery(`/classes/Todo?where=${query}&limit=100`);
+
+    if (!Array.isArray(list.results) || list.results.length === 0) return;
+
+    console.log(`🧹 [Task] 发现 ${list.results.length} 个过期任务，开始处理...`);
+
+    let refundTotal = 0;
+    
+    for (const task of list.results) {
+        // 更新状态
+        await rest(`/classes/Todo/${task.objectId}`, {
+            method: 'PUT',
+            body: JSON.stringify({ status: 'expired' })
+        });
+        
+        // 统计退款
+        if (task.rewardPoints && task.rewardPoints > 0) {
+            refundTotal += task.rewardPoints;
+            
+            // 发送通知
+            await sendNotification(
+                uid, // 发给自己
+                'task_expired',
+                '任务过期退分',
+                `任务“${task.content}”已过期，${task.rewardPoints} 积分已退回`,
+                task.objectId
+            );
+        }
+    }
+
+    // 批量退款
+    if (refundTotal > 0) {
+        const profile = await getOrCreateUserProfile();
+        await updateUserProfileFields(profile, {
+            points: (profile.points || 0) + refundTotal
+        });
+        console.log(`💰 [Task] 已退还 ${refundTotal} 积分`);
+    }
+};
+
+export const deleteTodo = async (id: string): Promise<void> => {
+  const uid = getCurrentUserId();
+  if (!uid) throw new Error('FORBIDDEN');
+  
+  // 可以在这里先 get 一次检查权限，或者直接 delete (Bmob ACL 会拦截)
+  // 为了严谨，建议依赖 ACL，这里直接调删
+  await rest(`/classes/Todo/${id}`, {
+    method: 'DELETE'
+  });
+};
+
 export const register = async (username: string, password: string, email?: string) => {
   logout();
   const user = await rest('/users', {
@@ -385,4 +915,86 @@ export const register = async (username: string, password: string, email?: strin
   });
   setSession(user);
   return user;
+};
+
+// ==================== 通知系统 API ====================
+
+export const sendNotification = async (
+    targetUserId: string, 
+    type: string, 
+    title: string, 
+    content: string, 
+    relatedId?: string,
+    extraData?: any
+): Promise<void> => {
+    const uid = getCurrentUserId();
+    if (!uid) throw new Error('Not logged in');
+
+    // 只有目标用户可读写 (ACL)
+    const acl = { 
+        [targetUserId]: { read: true, write: true },
+        // 发送者也需要写权限吗？不需要，发送后就归对方了。
+        // 但 Bmob 创建时如果不指定，默认可能是 Public? 
+        // 我们显式指定 ACL
+    };
+
+    await rest('/classes/Notification', {
+        method: 'POST',
+        body: JSON.stringify({
+            userId: targetUserId,
+            type,
+            title,
+            content,
+            isRead: false,
+            relatedId,
+            extraData,
+            ACL: acl
+        })
+    });
+};
+
+export const getMyNotifications = async (limit = 20): Promise<BackendNotification[]> => {
+    const uid = getCurrentUserId();
+    if (!uid) return [];
+
+    const query = encodeURIComponent(JSON.stringify({ userId: uid }));
+    const list = await safeQuery(`/classes/Notification?where=${query}&order=-createdAt&limit=${limit}`);
+    
+    if (!Array.isArray(list.results)) return [];
+    return list.results;
+};
+
+export const markNotificationAsRead = async (id: string): Promise<void> => {
+    await rest(`/classes/Notification/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ isRead: true })
+    });
+};
+
+export const markAllNotificationsAsRead = async (): Promise<void> => {
+    const uid = getCurrentUserId();
+    if (!uid) return;
+
+    // Bmob 不支持直接 update where，只能先查后更
+    const notifications = await getMyNotifications(50);
+    const unread = notifications.filter(n => !n.isRead);
+    
+    // 使用 Batch 接口
+    if (unread.length === 0) return;
+
+    const requests = unread.map(n => ({
+        method: 'PUT',
+        path: `/1/classes/Notification/${n.objectId}`,
+        body: { isRead: true }
+    }));
+
+    // 简单的分批处理 (假设不超过 50 个未读)
+    await rest('/batch', {
+        method: 'POST',
+        body: JSON.stringify({ requests: requests.slice(0, 50) })
+    });
+};
+
+export const deleteNotification = async (id: string): Promise<void> => {
+    await rest(`/classes/Notification/${id}`, { method: 'DELETE' });
 };
