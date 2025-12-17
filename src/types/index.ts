@@ -1,4 +1,7 @@
 export interface UserProfile {
+  username?: string; // Login ID (Unique)
+  nickname?: string; // Display Name
+  avatarUrl?: string; // Avatar Image URL
   gender: 'male' | 'female';
   age: number;
   height: number; // cm
@@ -8,6 +11,7 @@ export interface UserProfile {
   points?: number;
   partnerId?: string;
   partnerName?: string;
+  isProfileCompleted?: boolean;
 }
 
 export interface FoodItem {

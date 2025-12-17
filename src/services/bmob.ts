@@ -23,6 +23,8 @@ export interface BackendUserProfile {
   objectId?: string;
   userId: string;
   username?: string; // 冗余存储用户名，用于搜索
+  nickname?: string; // 展示用的昵称
+  avatarUrl?: string; // 头像图片链接
   user?: { __type: 'Pointer'; className: '_User'; objectId: string };
   gender: 'male' | 'female' | string;
   height: number;
@@ -142,6 +144,38 @@ const safeQuery = async (path: string) => {
   }
 };
 
+export const uploadFile = async (file: File): Promise<string> => {
+  if (!isBmobReady()) throw new Error('Bmob Config Missing');
+  
+  // 1. 文件名编码，防止中文乱码
+  const filename = encodeURIComponent(file.name);
+  
+  // 2. 直接调用 Bmob 文件上传接口
+  // POST /2/files/:filename
+  const url = `${BMOB_HOST}/2/files/${filename}`;
+  
+  const headers = {
+    'X-Bmob-Application-Id': APP_ID,
+    'X-Bmob-REST-API-Key': API_KEY,
+    'Content-Type': file.type,
+  };
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers,
+    body: file
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`File Upload Error ${res.status}: ${text}`);
+  }
+
+  const data = await res.json();
+  // Bmob 返回格式: { "filename": "...", "url": "http://..." }
+  return data.url;
+};
+
 // ==================== 业务逻辑 (保持 userId 绑定) ====================
 
 export const getOrCreateUserProfile = async (): Promise<BackendUserProfile> => {
@@ -167,6 +201,12 @@ export const getOrCreateUserProfile = async (): Promise<BackendUserProfile> => {
 
   if (profile) {
     console.log('✅ [Profile] 找到匹配档案:', profile.objectId);
+    
+    // 兼容性处理：如果 nickname 为空，默认使用 username
+    if (!profile.nickname) {
+        profile.nickname = profile.username || '用户';
+    }
+
     // 检查是否需要补全 username 或修复 ACL (老数据可能没有 username 或 ACL 为私有)
     // 强制每次检查并更新，确保该用户的 Profile 是公有读的，这样才能被搜到
     if (currentUser?.username) {
@@ -766,11 +806,18 @@ export const bindPartner = async (targetUsername: string): Promise<void> => {
     }
     
     // 3. 发送通知
+    // 优先使用昵称
+    let requesterName = currentUser.username;
+    try {
+        const myProfile = await getOrCreateUserProfile();
+        requesterName = myProfile.nickname || currentUser.username;
+    } catch (e) { console.warn('获取昵称失败', e); }
+
     await sendNotification(
       targetProfile.userId, // 注意：这里是对方的 userId (不是 objectId)
       'bind_request',
       '情侣绑定邀请',
-      `${currentUser.username} 想与你绑定情侣关系`,
+      `${requesterName} 想与你绑定情侣关系`,
       uid // 关联 ID 传自己的 User ID
     );
 };

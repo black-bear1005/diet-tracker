@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { format, startOfWeek, endOfWeek, eachDayOfInterval, isSameDay, addWeeks, subWeeks, isToday } from 'date-fns';
+import React, { useState, useEffect, useRef } from 'react';
+import { format, startOfWeek, endOfWeek, eachDayOfInterval, isSameDay, addWeeks, subWeeks, isToday, addDays, subDays } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
 import { 
   Calendar as CalendarIcon, ChevronLeft, ChevronRight, RotateCcw, Plus, Check, Trash2, 
@@ -13,6 +13,7 @@ import {
 } from '../services/bmob';
 import { useToast } from './Toast';
 import ConfirmDialog from './ConfirmDialog';
+import { motion, AnimatePresence } from 'framer-motion';
 
 interface TodoListProps {
   selectedDate: Date;
@@ -25,6 +26,7 @@ const TodoList: React.FC<TodoListProps> = ({ selectedDate, onDateChange }) => {
   const [newTodoContent, setNewTodoContent] = useState('');
   const [loading, setLoading] = useState(false);
   const [currentWeekStart, setCurrentWeekStart] = useState(startOfWeek(selectedDate, { weekStartsOn: 0 }));
+  const scrollRef = useRef<HTMLDivElement>(null);
   
   // Couple features
   const [assignee, setAssignee] = useState<'self' | 'partner'>('self');
@@ -52,6 +54,22 @@ const TodoList: React.FC<TodoListProps> = ({ selectedDate, onDateChange }) => {
   useEffect(() => {
     setCurrentWeekStart(startOfWeek(selectedDate, { weekStartsOn: 0 }));
   }, [selectedDate]);
+
+  // 自动滚动到选中的日期或今天
+  useEffect(() => {
+    if (scrollRef.current) {
+      const selectedElement = scrollRef.current.querySelector('[data-selected="true"]');
+      if (selectedElement) {
+        selectedElement.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+      } else {
+          // Fallback: try to find today
+           const todayElement = scrollRef.current.querySelector('[data-today="true"]');
+           if (todayElement) {
+               todayElement.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+           }
+      }
+    }
+  }, [currentWeekStart, selectedDate]);
 
   // Initial setup: Process expired tasks & load profile
   useEffect(() => {
@@ -268,9 +286,10 @@ const TodoList: React.FC<TodoListProps> = ({ selectedDate, onDateChange }) => {
     });
   };
 
-  const getDaysInWeek = () => {
-    const start = currentWeekStart;
-    const end = endOfWeek(currentWeekStart, { weekStartsOn: 0 });
+  const getDaysToDisplay = () => {
+    // 显示前一周、当前周、后一周 (共3周)
+    const start = subWeeks(currentWeekStart, 1);
+    const end = endOfWeek(addWeeks(currentWeekStart, 1), { weekStartsOn: 0 });
     return eachDayOfInterval({ start, end });
   };
 
@@ -286,7 +305,7 @@ const TodoList: React.FC<TodoListProps> = ({ selectedDate, onDateChange }) => {
   const expiredTodos = todos.filter(t => t.status === 'expired');
 
   return (
-    <div className="bg-white rounded-lg shadow-md p-6">
+    <div className="backdrop-blur-xl bg-white/80 border border-white/20 shadow-lg shadow-blue-500/5 rounded-2xl p-6 pt-safe-top">
       <h2 className="text-xl font-semibold text-gray-800 mb-6 flex items-center justify-between">
         <div className="flex items-center">
             <CheckSquare className="mr-2 text-blue-600" size={24} />
@@ -300,130 +319,143 @@ const TodoList: React.FC<TodoListProps> = ({ selectedDate, onDateChange }) => {
         )}
       </h2>
 
-      {/* Weekly Calendar Strip */}
-      <div className="mb-8 bg-white rounded-xl shadow-sm p-4 border border-gray-100 overflow-hidden">
-        <div className="flex justify-between items-center mb-4">
+      {/* 3-Week Scrollable Calendar Strip (Matches DailyLogger.tsx) */}
+      <div className="mb-8 bg-transparent rounded-xl shadow-none p-0">
+        <div className="flex justify-between items-center mb-4 px-2">
           <div className="flex items-center space-x-2">
-            <button
-              onClick={() => setCurrentWeekStart(subWeeks(currentWeekStart, 1))}
-              className="p-1.5 rounded-full hover:bg-gray-100 text-gray-600 transition-colors"
-            >
-              <ChevronLeft size={20} />
-            </button>
             <h3 className="text-lg font-bold text-gray-800">
-              {format(currentWeekStart, 'yyyy年MM月', { locale: zhCN })}
+              {format(selectedDate, 'yyyy年MM月', { locale: zhCN })}
             </h3>
-            <button
-              onClick={() => setCurrentWeekStart(addWeeks(currentWeekStart, 1))}
-              className="p-1.5 rounded-full hover:bg-gray-100 text-gray-600 transition-colors"
-            >
-              <ChevronRight size={20} />
-            </button>
           </div>
           
-          <button
-            onClick={() => onDateChange(new Date())}
+          <motion.button
+            whileTap={{ scale: 0.95 }}
+            onClick={() => {
+                const today = new Date();
+                onDateChange(today);
+                setCurrentWeekStart(startOfWeek(today, { weekStartsOn: 0 }));
+            }}
             className="flex items-center text-sm text-blue-600 hover:text-blue-700 font-medium px-3 py-1.5 rounded-full hover:bg-blue-50 transition-colors"
           >
             <RotateCcw size={14} className="mr-1.5" />
-            <span className="hidden sm:inline">回到今天</span>
-            <span className="sm:hidden">今天</span>
-          </button>
+            回到今天
+          </motion.button>
         </div>
         
-        <div className="flex justify-between overflow-x-auto no-scrollbar gap-1 sm:grid sm:grid-cols-7 sm:gap-2">
-          {getDaysInWeek().map(day => {
+        <div 
+            ref={scrollRef}
+            className="flex overflow-x-auto snap-x space-x-2 pb-4 hide-scrollbar"
+            style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+        >
+          {getDaysToDisplay().map(day => {
             const isSelected = isSameDay(day, selectedDate);
             const isTodayDate = isToday(day);
             
             return (
-              <button
+              <motion.button
                 key={day.toISOString()}
+                data-selected={isSelected}
+                data-today={isTodayDate}
                 onClick={() => onDateChange(day)}
-                className={`flex flex-col items-center justify-center py-2 sm:py-3 px-2 min-w-[3rem] sm:min-w-0 rounded-2xl transition-all duration-200 flex-1 ${
-                  isSelected
-                    ? 'bg-blue-500 text-white shadow-md transform scale-105'
-                    : 'text-gray-500 hover:bg-gray-50'
+                whileTap={{ scale: 0.9 }}
+                className={`flex-shrink-0 snap-center flex flex-col items-center justify-center w-14 py-2 transition-all duration-200 rounded-xl ${
+                    !isSelected ? 'hover:bg-white/50' : ''
                 }`}
               >
-                <span className={`text-[10px] sm:text-xs mb-1 font-medium ${isSelected ? 'text-blue-100' : 'text-gray-400'}`}>
+                <span className={`text-xs mb-2 font-medium ${isSelected ? 'text-blue-600' : 'text-gray-400'}`}>
                   {format(day, 'EEE', { locale: zhCN })}
                 </span>
-                <span className={`text-base sm:text-lg font-bold ${isSelected ? 'text-white' : 'text-gray-700'}`}>
-                  {format(day, 'd')}
-                </span>
+                
+                <div className={`w-10 h-10 flex items-center justify-center rounded-full text-lg font-bold transition-all ${
+                    isSelected 
+                    ? 'bg-gradient-to-r from-blue-500 to-indigo-600 text-white shadow-lg shadow-blue-500/30 scale-110' 
+                    : 'text-gray-700 hover:bg-gray-100'
+                }`}>
+                    {format(day, 'd')}
+                </div>
+
                 {isTodayDate && !isSelected && (
-                  <div className="mt-1 w-1.5 h-1.5 rounded-full bg-blue-500"></div>
+                  <div className="mt-2 w-1.5 h-1.5 rounded-full bg-blue-500"></div>
                 )}
-              </button>
+                {!isTodayDate && !isSelected && (
+                     <div className="mt-2 w-1.5 h-1.5 rounded-full bg-transparent"></div>
+                )}
+              </motion.button>
             );
           })}
         </div>
+        <div className="h-px bg-gray-100/50 w-full"></div>
       </div>
 
       {/* Input Area */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 mb-6 space-y-3">
-        <div className="flex gap-3 items-center">
-            <input
-            type="text"
-            value={newTodoContent}
-            onChange={(e) => setNewTodoContent(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleAddTodo()}
-            placeholder="添加一个新的待办事项..."
-            className="flex-1 bg-gray-50 border-none rounded-xl px-4 py-3 text-gray-700 placeholder-gray-400 focus:ring-2 focus:ring-blue-100 outline-none transition-all"
-            />
-            <button
+      <div className="bg-white/50 border border-gray-100 rounded-xl p-4 mb-6 flex flex-col gap-3">
+        {/* Row 1: Input */}
+        <input
+          type="text"
+          value={newTodoContent}
+          onChange={(e) => setNewTodoContent(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && handleAddTodo()}
+          placeholder="添加一个新的待办事项..."
+          className="w-full bg-white/80 border-none rounded-xl px-4 py-3 text-gray-700 placeholder-gray-400 focus:ring-2 focus:ring-blue-100 outline-none transition-all shadow-sm"
+        />
+
+        {/* Row 2: Controls */}
+        <div className="flex items-center justify-between mt-1">
+          {/* Left: Assignee & Reward */}
+          <div className="flex items-center gap-2 text-sm overflow-x-auto no-scrollbar">
+              <div className="flex items-center bg-white/50 rounded-lg p-1 flex-shrink-0">
+                  <button
+                      onClick={() => setAssignee('self')}
+                      className={`px-3 py-1.5 rounded-md flex items-center transition-all ${assignee === 'self' ? 'bg-white shadow-sm text-gray-800' : 'text-gray-500 hover:text-gray-700'}`}
+                  >
+                      <User size={14} className="mr-1.5" />
+                      自己
+                  </button>
+                  <button
+                      onClick={() => setAssignee('partner')}
+                      disabled={!userProfile?.partnerId}
+                      className={`px-3 py-1.5 rounded-md flex items-center transition-all ${assignee === 'partner' ? 'bg-white shadow-sm text-pink-600' : 'text-gray-500 hover:text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed'}`}
+                      title={!userProfile?.partnerId ? "请先在个人档案绑定伴侣" : ""}
+                  >
+                      <Heart size={14} className="mr-1.5" />
+                      伴侣
+                  </button>
+              </div>
+              
+              <div className="flex items-center bg-white/50 rounded-lg px-3 py-1.5 border border-transparent focus-within:border-yellow-200 focus-within:bg-yellow-50 transition-colors flex-shrink-0">
+                  <Coins size={14} className="text-yellow-500 mr-2" />
+                  <span className="text-gray-500 mr-2 hidden sm:inline">悬赏</span>
+                  <input 
+                      type="number" 
+                      min="0"
+                      max={userProfile?.points || 0}
+                      placeholder="0"
+                      value={rewardPoints}
+                      onChange={(e) => {
+                          const val = e.target.value;
+                          if (val === '') {
+                              setRewardPoints('');
+                          } else {
+                              const num = parseInt(val);
+                              if (!isNaN(num) && num >= 0) {
+                                  setRewardPoints(num);
+                              }
+                          }
+                      }}
+                      className="w-12 sm:w-16 bg-transparent outline-none font-medium text-gray-700"
+                  />
+              </div>
+          </div>
+
+          {/* Right: Add Button */}
+          <motion.button
+            whileTap={{ scale: 0.95 }}
             onClick={handleAddTodo}
             disabled={!newTodoContent.trim()}
-            className="p-3 bg-blue-500 text-white rounded-xl hover:bg-blue-600 shadow-lg shadow-blue-200 disabled:opacity-50 disabled:shadow-none transition-all active:scale-95"
-            >
+            className="p-3 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-xl hover:from-blue-600 hover:to-indigo-700 shadow-lg shadow-blue-500/30 disabled:opacity-50 disabled:shadow-none transition-all flex-shrink-0 ml-2"
+          >
             <Plus size={24} />
-            </button>
-        </div>
-        
-        {/* Advanced Options */}
-        <div className="flex items-center gap-4 text-sm">
-            <div className="flex items-center bg-gray-50 rounded-lg p-1">
-                <button
-                    onClick={() => setAssignee('self')}
-                    className={`px-3 py-1.5 rounded-md flex items-center transition-all ${assignee === 'self' ? 'bg-white shadow-sm text-gray-800' : 'text-gray-500 hover:text-gray-700'}`}
-                >
-                    <User size={14} className="mr-1.5" />
-                    自己
-                </button>
-                <button
-                    onClick={() => setAssignee('partner')}
-                    disabled={!userProfile?.partnerId}
-                    className={`px-3 py-1.5 rounded-md flex items-center transition-all ${assignee === 'partner' ? 'bg-white shadow-sm text-pink-600' : 'text-gray-500 hover:text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed'}`}
-                    title={!userProfile?.partnerId ? "请先在个人档案绑定伴侣" : ""}
-                >
-                    <Heart size={14} className="mr-1.5" />
-                    伴侣
-                </button>
-            </div>
-            
-            <div className="flex items-center bg-gray-50 rounded-lg px-3 py-1.5 border border-transparent focus-within:border-yellow-200 focus-within:bg-yellow-50 transition-colors">
-                <Coins size={14} className="text-yellow-500 mr-2" />
-                <span className="text-gray-500 mr-2">悬赏</span>
-                <input 
-                    type="number" 
-                    min="0"
-                    max={userProfile?.points || 0}
-                    value={rewardPoints}
-                    onChange={(e) => {
-                        const val = e.target.value;
-                        if (val === '') {
-                            setRewardPoints('');
-                        } else {
-                            const num = parseInt(val);
-                            if (!isNaN(num) && num >= 0) {
-                                setRewardPoints(num);
-                            }
-                        }
-                    }}
-                    className="w-16 bg-transparent outline-none font-medium text-gray-700"
-                />
-            </div>
+          </motion.button>
         </div>
       </div>
 
@@ -432,12 +464,12 @@ const TodoList: React.FC<TodoListProps> = ({ selectedDate, onDateChange }) => {
         {loading ? (
           <div className="text-center py-10 text-gray-400">加载中...</div>
         ) : todos.length === 0 ? (
-          <div className="text-center py-10 text-gray-400 bg-gray-50 rounded-xl border border-dashed border-gray-200">
+          <div className="text-center py-10 text-gray-400 bg-white/50 rounded-xl border border-dashed border-gray-200">
             <CheckSquare size={48} className="mx-auto mb-3 opacity-20" />
             今天还没有待办事项，添加一个吧！
           </div>
         ) : (
-          <>
+          <AnimatePresence mode="popLayout">
             {/* Active Todos */}
             {activeTodos.map(todo => {
                 const isAssignedToMe = todo.assigneeId === currentUserId;
@@ -447,15 +479,21 @@ const TodoList: React.FC<TodoListProps> = ({ selectedDate, onDateChange }) => {
                 const isForced = todo.type === 'forced_task';
                 
                 return (
-                    <div 
-                        key={todo.objectId} 
+                    <motion.div 
+                        key={todo.objectId}
+                        layout
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.9, height: 0, marginBottom: 0 }}
+                        transition={{ duration: 0.2 }}
                         className={`group flex items-center p-4 rounded-xl border shadow-sm hover:shadow-md transition-all ${
-                            isForced ? 'bg-red-50 border-red-200 shadow-red-100' :
+                            isForced ? 'bg-red-50/80 border-red-200 shadow-red-100' :
                             !isAssignedToMe ? 'border-pink-100 bg-pink-50/30' : 
                             isPendingApproval ? 'border-yellow-200 bg-yellow-50/50' : 'bg-white border-gray-100'
                         }`}
                     >
-                        <button
+                        <motion.button
+                        whileTap={{ scale: 0.8 }}
                         onClick={() => handleToggleTodo(todo)}
                         className={`mr-4 transition-colors ${
                             isForced ? 'text-red-500 hover:text-red-600' :
@@ -470,10 +508,10 @@ const TodoList: React.FC<TodoListProps> = ({ selectedDate, onDateChange }) => {
                         }
                         >
                         {isPendingApproval ? <Clock size={24} /> : (isForced ? <Flame size={24} /> : <Square size={24} />)}
-                        </button>
+                        </motion.button>
                         
                         <div className="flex-1">
-                            <div className="flex items-center gap-2 mb-1">
+                            <div className="flex items-center gap-2 mb-1 flex-wrap">
                                 <span className={`font-medium text-lg ${isPendingApproval ? 'text-gray-600' : (isForced ? 'text-red-700 font-bold' : 'text-gray-800')}`}>
                                     {todo.content}
                                 </span>
@@ -533,7 +571,7 @@ const TodoList: React.FC<TodoListProps> = ({ selectedDate, onDateChange }) => {
                                 <Trash2 size={20} />
                             </button>
                         </div>
-                    </div>
+                    </motion.div>
                 );
             })}
 
@@ -543,18 +581,23 @@ const TodoList: React.FC<TodoListProps> = ({ selectedDate, onDateChange }) => {
                 <div className="text-xs font-bold text-gray-400 mb-2 uppercase tracking-wider">已完成</div>
                 <div className="space-y-2">
                   {completedTodos.map(todo => (
-                    <div 
+                    <motion.div 
                       key={todo.objectId} 
-                      className="group flex items-center p-3 bg-gray-50 rounded-xl border border-transparent hover:border-gray-100 transition-all opacity-60 hover:opacity-100"
+                      layout
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 0.6 }}
+                      exit={{ opacity: 0, height: 0 }}
+                      className="group flex items-center p-3 bg-gray-50/50 rounded-xl border border-transparent hover:border-gray-100 transition-all"
                     >
-                      <button
+                      <motion.button
+                        whileTap={{ scale: 0.8 }}
                         onClick={() => handleToggleTodo(todo)}
                         className="mr-4 text-green-500 hover:text-green-600 transition-colors"
                       >
                         <CheckSquare size={24} />
-                      </button>
+                      </motion.button>
                       <div className="flex-1">
-                         <span className="text-gray-500 line-through">{todo.content}</span>
+                         <span className="text-gray-500 line-through decoration-gray-300 decoration-2">{todo.content}</span>
                          {todo.rewardPoints && todo.rewardPoints > 0 && (
                             <span className="ml-2 inline-flex items-center text-xs text-gray-400">
                                 <Coins size={10} className="mr-0.5" />
@@ -568,7 +611,7 @@ const TodoList: React.FC<TodoListProps> = ({ selectedDate, onDateChange }) => {
                       >
                         <Trash2 size={18} />
                       </button>
-                    </div>
+                    </motion.div>
                   ))}
                 </div>
               </div>
@@ -583,8 +626,9 @@ const TodoList: React.FC<TodoListProps> = ({ selectedDate, onDateChange }) => {
                 </div>
                 <div className="space-y-2">
                   {expiredTodos.map(todo => (
-                    <div 
+                    <motion.div 
                       key={todo.objectId} 
+                      layout
                       className={`group flex items-center p-3 rounded-xl border border-transparent transition-all ${
                           todo.isPunished ? 'bg-red-50 opacity-90' : 'bg-gray-100 opacity-50'
                       }`}
@@ -612,12 +656,12 @@ const TodoList: React.FC<TodoListProps> = ({ selectedDate, onDateChange }) => {
                       >
                         <Trash2 size={18} />
                       </button>
-                    </div>
+                    </motion.div>
                   ))}
                 </div>
               </div>
             )}
-          </>
+          </AnimatePresence>
         )}
       </div>
 

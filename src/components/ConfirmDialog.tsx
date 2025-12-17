@@ -1,4 +1,5 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 import { AlertCircle, X } from 'lucide-react';
 
 interface ConfirmDialogProps {
@@ -39,8 +40,8 @@ const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
 
   const color = getThemeColor();
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-in fade-in duration-200">
+  return createPortal(
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
       <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
         <div className="p-6 text-center">
           <div className={`mx-auto mb-4 w-12 h-12 rounded-full bg-${color}-50 flex items-center justify-center`}>
@@ -71,7 +72,8 @@ const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
 

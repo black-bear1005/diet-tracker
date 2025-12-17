@@ -53,7 +53,10 @@ const mapBackendProfileToUserProfile = async (): Promise<UserProfile> => {
     calorieDeficit: p.targetDeficit,
     partnerId: p.partnerId,
     partnerName: p.partnerName,
-    points: p.points ?? 100
+    points: p.points ?? 100,
+    nickname: p.nickname,
+    avatarUrl: p.avatarUrl,
+    username: p.username
   };
 };
 
@@ -134,7 +137,9 @@ export const saveUserProfile = async (profile: UserProfile): Promise<void> => {
       targetDeficit: profile.calorieDeficit,
       activityLevel: profile.activityLevel,
       birthday,
-      weight: profile.weight
+      weight: profile.weight,
+      nickname: profile.nickname,
+      avatarUrl: profile.avatarUrl
     });
   } catch (error) {
     console.error('Error saving user profile to Bmob:', error);

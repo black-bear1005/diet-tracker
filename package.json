@@ -14,9 +14,13 @@
     "deploy": "vite build && gh-pages -d dist -r git@github.com:black-bear1005/diet-tracker.git"
   },
   "dependencies": {
+    "@capacitor/android": "^8.0.0",
+    "@capacitor/cli": "^8.0.0",
+    "@capacitor/core": "^8.0.0",
     "chart.js": "^4.5.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
+    "framer-motion": "^12.23.26",
     "lucide-react": "^0.511.0",
     "react": "^18.3.1",
     "react-chartjs-2": "^5.3.1",

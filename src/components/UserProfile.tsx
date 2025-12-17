@@ -2,9 +2,10 @@ import React, { useState, useEffect } from 'react';
 import type { UserProfile as UserProfileType, CalculatedMetrics } from '../types';
 import { calculateMetrics } from '../utils/calculations';
 import { saveUserProfile } from '../utils/storage';
-import { bindPartner } from '../services/bmob';
-import { User, Activity, Heart, Coins, Link as LinkIcon } from 'lucide-react';
+import { bindPartner, uploadFile } from '../services/bmob';
+import { User, Activity, Heart, Coins, Link as LinkIcon, Edit2, Check, Ruler, Weight, Scale, Flame, Camera, Trash2 } from 'lucide-react';
 import { useToast } from './Toast';
+import { motion } from 'framer-motion';
 
 interface UserProfileProps {
   profile: UserProfileType | null;
@@ -20,17 +21,22 @@ const UserProfile: React.FC<UserProfileProps> = ({ profile, onProfileUpdate }) =
       weight: number | string;
       activityLevel: number; // Select, usually no need for empty
       calorieDeficit: number | string;
+      nickname: string;
+      avatarUrl: string;
   }>({
     gender: 'male',
     age: 25,
     height: 170,
     weight: 70,
     activityLevel: 1.375,
-    calorieDeficit: 500
+    calorieDeficit: 500,
+    nickname: '',
+    avatarUrl: ''
   });
 
   const [metrics, setMetrics] = useState<CalculatedMetrics | null>(null);
   const [isEditing, setIsEditing] = useState(!profile);
+  const [uploading, setUploading] = useState(false);
   
   // Couple features state
   const [partnerInput, setPartnerInput] = useState('');
@@ -39,11 +45,37 @@ const UserProfile: React.FC<UserProfileProps> = ({ profile, onProfileUpdate }) =
 
   useEffect(() => {
     if (profile) {
-      setFormData(profile);
+      setFormData({
+          ...profile,
+          nickname: profile.nickname || '',
+          avatarUrl: profile.avatarUrl || ''
+      });
       const calculatedMetrics = calculateMetrics(profile);
       setMetrics(calculatedMetrics);
     }
   }, [profile]);
+
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 2 * 1024 * 1024) {
+        showToast('图片大小不能超过 2MB', 'error');
+        return;
+    }
+
+    setUploading(true);
+    try {
+        const url = await uploadFile(file);
+        setFormData(prev => ({ ...prev, avatarUrl: url }));
+        showToast('头像上传成功', 'success');
+    } catch (error: any) {
+        console.error('Avatar upload failed:', error);
+        showToast('头像上传失败，请重试', 'error');
+    } finally {
+        setUploading(false);
+    }
+  };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -98,13 +130,6 @@ const UserProfile: React.FC<UserProfileProps> = ({ profile, onProfileUpdate }) =
     
     try {
       await bindPartner(partnerInput.trim());
-      // Update local state manually assuming success
-      // const updatedProfile = { 
-      //   ...formData, 
-      //   partnerName: partnerInput.trim() 
-      // };
-      // setFormData(updatedProfile);
-      // onProfileUpdate(updatedProfile);
       setPartnerInput('');
       showToast('已发送绑定请求，请等待对方在消息中心确认！', 'success');
     } catch (error: any) {
@@ -125,209 +150,426 @@ const UserProfile: React.FC<UserProfileProps> = ({ profile, onProfileUpdate }) =
   ];
 
   if (!isEditing && profile && metrics) {
+    // Determine BMI color
+    let bmiColor = 'text-green-500';
+    let bmiBg = 'bg-green-50/50 border-green-100/50';
+    if (metrics.bmi < 18.5) {
+        bmiColor = 'text-blue-500';
+        bmiBg = 'bg-blue-50/50 border-blue-100/50';
+    } else if (metrics.bmi >= 24) {
+        bmiColor = 'text-orange-500';
+        bmiBg = 'bg-orange-50/50 border-orange-100/50';
+    }
+
     return (
-      <div className="bg-white rounded-lg shadow-md p-6 space-y-6">
-        {/* Header & Basic Info */}
-        <div>
-            <div className="flex justify-between items-center mb-4">
-            <h2 className="text-xl font-semibold text-gray-800 flex items-center">
-                <User className="mr-2" size={24} />
-                个人档案
-            </h2>
-            <button
-                onClick={() => setIsEditing(true)}
-                className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors"
-            >
-                编辑
-            </button>
-            </div>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-                <p><span className="font-medium">性别:</span> {profile.gender === 'male' ? '男' : '女'}</p>
-                <p><span className="font-medium">年龄:</span> {profile.age} 岁</p>
-                <p><span className="font-medium">身高:</span> {profile.height} cm</p>
-                <p><span className="font-medium">体重:</span> {profile.weight} kg</p>
-            </div>
-            
-            <div className="space-y-2">
-                <p><span className="font-medium">BMI:</span> {metrics.bmi.toFixed(1)} ({metrics.bmiCategory})</p>
-                <p><span className="font-medium">BMR:</span> {metrics.bmr.toFixed(0)} kcal/天</p>
-                <p><span className="font-medium">TDEE:</span> {metrics.tdee.toFixed(0)} kcal/天</p>
-                <p><span className="font-medium">建议摄入:</span> {metrics.dailyCalorieLimit.toFixed(0)} kcal/天</p>
-            </div>
-            </div>
-        </div>
-
-        {/* Couple & Points Section */}
-        <div className="border-t pt-6">
-            <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center">
-                <Heart className="mr-2 text-pink-500" size={20} />
-                情侣互动
-            </h3>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* Points Card */}
-                <div className="bg-yellow-50 rounded-xl p-4 border border-yellow-100 flex items-center justify-between">
-                    <div>
-                        <div className="text-yellow-800 font-medium mb-1">当前积分</div>
-                        <div className="text-3xl font-bold text-yellow-600">{profile.points || 0}</div>
-                    </div>
-                    <div className="bg-white p-3 rounded-full shadow-sm">
-                        <Coins className="text-yellow-500" size={32} />
-                    </div>
-                </div>
-
-                {/* Partner Card */}
-                <div className="bg-pink-50 rounded-xl p-4 border border-pink-100">
-                    <div className="text-pink-800 font-medium mb-3">我的伴侣</div>
-                    
-                    {profile.partnerName ? (
-                        <div className="flex items-center text-pink-700">
-                            <Heart className="mr-2 fill-current" size={20} />
-                            <span className="font-bold text-lg">{profile.partnerName}</span>
-                            <span className="ml-2 text-xs bg-pink-200 text-pink-700 px-2 py-1 rounded-full">已绑定</span>
-                        </div>
+      <motion.div 
+        layout
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 0.4 }}
+        className="space-y-4"
+      >
+        {/* Header Card */}
+        <motion.div layout className="bg-white/70 backdrop-blur-xl border border-white/40 shadow-sm rounded-2xl p-6 flex justify-between items-center">
+            <div className="flex items-center gap-5">
+                {/* Avatar */}
+                <div className="relative">
+                    {profile.avatarUrl ? (
+                        <img 
+                            src={profile.avatarUrl} 
+                            alt="Avatar" 
+                            className="w-20 h-20 rounded-full object-cover border-4 border-white shadow-md"
+                        />
                     ) : (
-                        <div className="space-y-3">
-                            <div className="flex gap-2">
-                                <input
-                                    type="text"
-                                    value={partnerInput}
-                                    onChange={(e) => setPartnerInput(e.target.value)}
-                                    placeholder="输入对象用户名"
-                                    className="flex-1 px-3 py-2 text-sm border border-pink-200 rounded-md focus:outline-none focus:ring-2 focus:ring-pink-400"
-                                />
-                                <button 
-                                    onClick={handleBindPartner}
-                                    disabled={bindingLoading || !partnerInput.trim()}
-                                    className="px-3 py-2 bg-pink-500 text-white text-sm rounded-md hover:bg-pink-600 disabled:opacity-50 transition-colors flex items-center"
-                                >
-                                    {bindingLoading ? '绑定中...' : <><LinkIcon size={14} className="mr-1"/> 绑定</>}
-                                </button>
-                            </div>
-                            {bindError && <p className="text-xs text-red-500">{bindError}</p>}
-                            <p className="text-xs text-pink-400">绑定后可互相指派任务并赚取积分</p>
+                        <div className="w-20 h-20 bg-gradient-to-br from-blue-100 to-indigo-100 rounded-full flex items-center justify-center text-blue-600 border-4 border-white shadow-md">
+                            <User size={36} />
                         </div>
                     )}
                 </div>
+                
+                <div>
+                    <h2 className="text-2xl font-bold text-slate-800 mb-1">{profile.nickname || '用户'}</h2>
+                    <p className="text-sm text-slate-400 font-medium font-mono">
+                        ID: {profile.username || 'Unknown'}
+                    </p>
+                    <p className="text-xs text-slate-400 mt-1 flex items-center gap-1">
+                        {profile.gender === 'male' ? '男生' : '女生'}
+                        <span className="w-1 h-1 bg-slate-300 rounded-full mx-1"></span>
+                        已加入 {Math.floor((Date.now() - new Date(profile.createdAt || Date.now()).getTime()) / (1000 * 60 * 60 * 24)) + 1} 天
+                    </p>
+                </div>
             </div>
+            <motion.button
+                whileTap={{ scale: 0.95 }}
+                onClick={() => setIsEditing(true)}
+                className="p-3 bg-white border border-gray-100 text-slate-600 rounded-xl hover:bg-gray-50 shadow-sm transition-all"
+            >
+                <Edit2 size={18} />
+            </motion.button>
+        </motion.div>
+
+        {/* Body Data Grid (Bento) */}
+        <div className="grid grid-cols-2 gap-3">
+            {/* Card 1: Basic Stats */}
+            <motion.div layout className="bg-white/70 backdrop-blur-xl border border-white/40 shadow-sm rounded-2xl p-5 flex flex-col justify-between">
+                <div className="flex justify-between items-start mb-2">
+                    <span className="text-xs font-medium text-slate-400">身体数据</span>
+                    <Ruler size={14} className="text-slate-300" />
+                </div>
+                <div className="space-y-3">
+                    <div className="flex justify-between items-end">
+                        <span className="text-xs text-slate-500">身高</span>
+                        <span className="text-lg font-bold text-slate-800">{profile.height} <span className="text-xs font-normal text-slate-400">cm</span></span>
+                    </div>
+                    <div className="flex justify-between items-end">
+                        <span className="text-xs text-slate-500">体重</span>
+                        <span className="text-lg font-bold text-slate-800">{profile.weight} <span className="text-xs font-normal text-slate-400">kg</span></span>
+                    </div>
+                    <div className="flex justify-between items-end">
+                        <span className="text-xs text-slate-500">年龄</span>
+                        <span className="text-lg font-bold text-slate-800">{profile.age} <span className="text-xs font-normal text-slate-400">岁</span></span>
+                    </div>
+                </div>
+            </motion.div>
+
+            {/* Card 2: BMI Dashboard */}
+            <motion.div layout className={`backdrop-blur-xl border shadow-sm rounded-2xl p-5 flex flex-col justify-between relative overflow-hidden ${bmiBg}`}>
+                <div className="flex justify-between items-start z-10">
+                    <span className="text-xs font-medium text-slate-500/80">BMI 指数</span>
+                    <Scale size={14} className="text-slate-400/50" />
+                </div>
+                <div className="z-10 mt-2">
+                    <div className={`text-4xl font-black ${bmiColor} tracking-tight`}>{metrics.bmi.toFixed(1)}</div>
+                    <div className={`text-xs font-bold mt-1 px-2 py-1 rounded-full inline-block bg-white/60 backdrop-blur-sm ${bmiColor}`}>
+                        {metrics.bmiCategory}
+                    </div>
+                </div>
+                {/* Decoration */}
+                <div className={`absolute -bottom-4 -right-4 w-24 h-24 rounded-full opacity-10 ${bmiColor.replace('text', 'bg')}`} />
+            </motion.div>
         </div>
-      </div>
+
+        {/* Metabolic Data (Capsule) */}
+        <motion.div layout className="bg-white/70 backdrop-blur-xl border border-white/40 shadow-sm rounded-2xl p-1">
+            <div className="bg-white/50 rounded-xl p-4 flex justify-between items-center divide-x divide-gray-100">
+                <div className="flex-1 text-center px-2">
+                    <div className="text-[10px] text-slate-400 mb-1 uppercase tracking-wider">BMR 基代</div>
+                    <div className="text-sm font-bold text-slate-700">{metrics.bmr.toFixed(0)}</div>
+                </div>
+                <div className="flex-1 text-center px-2">
+                    <div className="text-[10px] text-slate-400 mb-1 uppercase tracking-wider">TDEE 总耗</div>
+                    <div className="text-sm font-bold text-slate-700">{metrics.tdee.toFixed(0)}</div>
+                </div>
+                <div className="flex-1 text-center px-2">
+                    <div className="text-[10px] text-slate-400 mb-1 uppercase tracking-wider">目标缺口</div>
+                    <div className="text-sm font-bold text-slate-700">-{profile.calorieDeficit}</div>
+                </div>
+            </div>
+        </motion.div>
+
+        {/* Core Goal (Big Card) */}
+        <motion.div layout className="flex flex-col gap-3 mt-4">
+            {/* Target Card (Full Width) */}
+            <motion.div 
+                whileHover={{ y: -2 }}
+                className="bg-gradient-to-br from-emerald-50 to-teal-50 border border-emerald-100 rounded-3xl p-6 flex flex-col justify-center h-32 relative overflow-hidden shadow-sm"
+            >
+                <div className="relative z-10">
+                    <div className="text-sm font-bold text-emerald-600/70 uppercase tracking-wider mb-1">每日建议摄入</div>
+                    <div className="text-5xl font-black text-emerald-700 leading-none tracking-tight">
+                        {metrics.dailyCalorieLimit.toFixed(0)}
+                    </div>
+                    <div className="text-sm font-bold text-emerald-500 mt-1">kcal / day</div>
+                </div>
+                {/* Big Decor Icon */}
+                <div className="absolute -right-4 -bottom-4 text-emerald-500/10 transform rotate-12">
+                    <Flame size={120} fill="currentColor" />
+                </div>
+            </motion.div>
+
+            {/* Bottom Row (2 Equal Cards) */}
+            <div className="grid grid-cols-2 gap-3 h-32">
+                {/* Points Card */}
+                <motion.div 
+                    whileHover={{ y: -2 }}
+                    className="bg-amber-50 border border-amber-100 rounded-2xl p-4 flex flex-col justify-center relative overflow-hidden shadow-sm"
+                >
+                    <div className="z-10">
+                        <div className="text-xs font-bold text-amber-600/60 uppercase tracking-wider mb-1">积分</div>
+                        <div className="text-3xl font-black text-amber-600 leading-none">
+                            {profile.points || 0}
+                        </div>
+                    </div>
+                    {/* Decor */}
+                    <div className="absolute -bottom-4 -right-4 text-amber-500/10 transform -rotate-12 pointer-events-none">
+                        <Coins className="w-24 h-24" fill="currentColor" />
+                    </div>
+                </motion.div>
+
+                {/* Partner Card */}
+                <motion.div 
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => setPartnerInput('')}
+                    className="bg-pink-50 border border-pink-100 rounded-2xl p-4 flex flex-col justify-center relative overflow-hidden shadow-sm cursor-pointer group"
+                >
+                    <div className="z-10 w-full relative">
+                        <div className="text-xs font-bold text-pink-600/60 uppercase tracking-wider mb-1">伴侣</div>
+                        {profile.partnerName ? (
+                             <div className="text-xl font-black text-pink-700 leading-tight line-clamp-1 break-all">
+                                {profile.partnerName}
+                            </div>
+                        ) : (
+                            <div className="text-lg font-bold text-pink-400 group-hover:text-pink-600 transition-colors">
+                                绑定
+                            </div>
+                        )}
+                    </div>
+
+                    {!profile.partnerName && (
+                        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-white/95 opacity-0 hover:opacity-100 transition-opacity p-2">
+                            <div className="w-full h-full flex flex-col justify-center gap-2">
+                                <input
+                                    type="text"
+                                    inputMode="text"
+                                    value={partnerInput}
+                                    onChange={(e) => setPartnerInput(e.target.value)}
+                                    placeholder="请输入对方账号"
+                                    className="w-full text-[10px] border border-pink-200 rounded-lg px-2 py-1.5 focus:outline-none bg-white placeholder:text-[10px]"
+                                    onClick={(e) => e.stopPropagation()}
+                                />
+                                <p className="text-[8px] text-pink-400 leading-tight">* 请搜索对方唯一的登录账号</p>
+                                <button 
+                                    onClick={(e) => { e.stopPropagation(); handleBindPartner(); }}
+                                    className="w-full bg-pink-500 text-white text-[10px] py-1 rounded-lg font-bold hover:bg-pink-600"
+                                >
+                                    确定
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                    
+                    {/* Decor */}
+                    <div className="absolute -bottom-4 -right-4 text-pink-500/10 transform rotate-12 pointer-events-none">
+                        <Heart className="w-24 h-24" fill="currentColor" />
+                    </div>
+                </motion.div>
+            </div>
+        </motion.div>
+      </motion.div>
     );
   }
 
   return (
-    <div className="bg-white rounded-lg shadow-md p-6">
-      <h2 className="text-xl font-semibold text-gray-800 mb-4 flex items-center">
-        <User className="mr-2" size={24} />
-        {profile ? '编辑个人档案' : '创建个人档案'}
-      </h2>
+    <motion.div 
+        layout
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="bg-white/70 backdrop-blur-xl border border-white/40 shadow-sm rounded-2xl p-6"
+    >
+      <div className="flex justify-between items-center mb-6">
+        <h2 className="text-xl font-bold text-slate-800 flex items-center">
+            <div className="p-2 bg-blue-50 rounded-xl mr-3 text-blue-600">
+                <Edit2 size={20} />
+            </div>
+            {profile ? '编辑档案' : '创建档案'}
+        </h2>
+        {profile && (
+            <button onClick={() => setIsEditing(false)} className="text-sm text-slate-400 hover:text-slate-600">取消</button>
+        )}
+      </div>
       
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">性别</label>
+      <form onSubmit={handleSubmit} className="space-y-6">
+        {/* Avatar Upload */}
+        <div className="flex flex-col items-center mb-2">
+            <div className="relative group cursor-pointer" onClick={() => document.getElementById('avatar-upload')?.click()}>
+                {formData.avatarUrl ? (
+                    <img 
+                        src={formData.avatarUrl} 
+                        alt="Avatar" 
+                        className="w-24 h-24 rounded-full object-cover border-4 border-white shadow-md"
+                    />
+                ) : (
+                    <div className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center text-gray-400 border-4 border-white shadow-md">
+                        {uploading ? <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-400"></div> : <Camera size={32} />}
+                    </div>
+                )}
+                
+                {/* Overlay */}
+                <div className="absolute inset-0 bg-black/40 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Camera className="text-white" size={24} />
+                </div>
+
+                <input 
+                    id="avatar-upload"
+                    type="file" 
+                    accept="image/*"
+                    hidden
+                    onChange={handleAvatarUpload}
+                    disabled={uploading}
+                />
+
+                {/* Delete Button */}
+                {formData.avatarUrl && (
+                    <button
+                        type="button"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            setFormData(prev => ({ ...prev, avatarUrl: '' }));
+                        }}
+                        className="absolute -right-2 -bottom-2 p-2 bg-red-500 text-white rounded-full shadow-md hover:bg-red-600 transition-colors"
+                    >
+                        <Trash2 size={14} />
+                    </button>
+                )}
+            </div>
+            <p className="text-xs text-slate-400 mt-2">点击更换头像</p>
+        </div>
+
+        {/* Identity Fields */}
+        <div className="grid grid-cols-1 gap-5 bg-white/50 p-4 rounded-2xl border border-white/40">
+            <div className="space-y-1">
+                <label className="block text-xs font-bold text-slate-500 ml-1">昵称 (展示名称)</label>
+                <input
+                    type="text"
+                    name="nickname"
+                    value={formData.nickname}
+                    onChange={handleInputChange}
+                    className="w-full px-4 py-3 bg-white border border-gray-100 rounded-xl focus:ring-2 focus:ring-blue-500/20 text-slate-800 font-bold"
+                    placeholder="请输入昵称"
+                />
+            </div>
+            <div className="space-y-1">
+                <label className="block text-xs font-bold text-slate-500 ml-1">登录账号 (唯一ID)</label>
+                <input
+                    type="text"
+                    value={profile?.username || ''}
+                    disabled
+                    readOnly
+                    className="w-full px-4 py-3 bg-gray-100 border-none rounded-xl text-slate-500 font-mono text-sm"
+                />
+                <p className="text-[10px] text-slate-400 ml-1">
+                    * 伴侣需搜索此账号进行绑定
+                </p>
+            </div>
+        </div>
+
+        {/* Compact Row for Basic Stats */}
+        <div className="flex gap-3">
+            <div className="flex-1 space-y-1">
+                <label className="block text-xs font-bold text-slate-500 ml-1">年龄</label>
+                <input
+                    type="number"
+                    inputMode="numeric"
+                    name="age"
+                    value={formData.age}
+                    onChange={handleInputChange}
+                    className="w-full px-4 py-3 bg-gray-50 border-none rounded-xl focus:ring-2 focus:ring-blue-500/20 text-slate-800 font-bold text-center"
+                    placeholder="25"
+                    required
+                />
+            </div>
+            <div className="flex-1 space-y-1">
+                <label className="block text-xs font-bold text-slate-500 ml-1">身高 (cm)</label>
+                <input
+                    type="number"
+                    inputMode="decimal"
+                    name="height"
+                    value={formData.height}
+                    onChange={handleInputChange}
+                    className="w-full px-4 py-3 bg-gray-50 border-none rounded-xl focus:ring-2 focus:ring-blue-500/20 text-slate-800 font-bold text-center"
+                    placeholder="170"
+                    required
+                />
+            </div>
+            <div className="flex-1 space-y-1">
+                <label className="block text-xs font-bold text-slate-500 ml-1">体重 (kg)</label>
+                <input
+                    type="number"
+                    inputMode="decimal"
+                    name="weight"
+                    value={formData.weight}
+                    onChange={handleInputChange}
+                    className="w-full px-4 py-3 bg-gray-50 border-none rounded-xl focus:ring-2 focus:ring-blue-500/20 text-slate-800 font-bold text-center"
+                    placeholder="60"
+                    step="0.1"
+                    required
+                />
+            </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-5">
+          <div className="space-y-1">
+            <label className="block text-xs font-bold text-slate-500 ml-1">性别</label>
+            <div className="flex gap-3">
+                {['male', 'female'].map(g => (
+                    <button
+                        key={g}
+                        type="button"
+                        onClick={() => setFormData(prev => ({ ...prev, gender: g as 'male' | 'female' }))}
+                        className={`flex-1 py-3 rounded-xl font-bold transition-all ${
+                            formData.gender === g 
+                            ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/30' 
+                            : 'bg-gray-50 text-slate-400 hover:bg-gray-100'
+                        }`}
+                    >
+                        {g === 'male' ? '男生' : '女生'}
+                    </button>
+                ))}
+            </div>
+          </div>
+          
+          <div className="space-y-1">
+            <label className="block text-xs font-bold text-slate-500 ml-1 flex items-center">
+              <Activity className="mr-1 text-blue-500" size={14} />
+              日常活动强度
+            </label>
             <select
-              name="gender"
-              value={formData.gender}
+              name="activityLevel"
+              value={formData.activityLevel}
               onChange={handleInputChange}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-4 py-3 bg-gray-50 border-none rounded-xl focus:ring-2 focus:ring-blue-500/20 text-slate-700 font-medium appearance-none"
               required
             >
-              <option value="male">男</option>
-              <option value="female">女</option>
+              {activityLevels.map(level => (
+                <option key={level.value} value={level.value}>
+                  {level.label}
+                </option>
+              ))}
             </select>
           </div>
           
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">年龄 (岁)</label>
-            <input
-              type="number"
-              name="age"
-              value={formData.age}
-              onChange={handleInputChange}
-              min="1"
-              max="120"
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              required
-            />
-          </div>
-          
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">身高 (cm)</label>
-            <input
-              type="number"
-              name="height"
-              value={formData.height}
-              onChange={handleInputChange}
-              min="100"
-              max="250"
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              required
-            />
-          </div>
-          
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">体重 (kg)</label>
-            <input
-              type="number"
-              name="weight"
-              value={formData.weight}
-              onChange={handleInputChange}
-              min="30"
-              max="200"
-              step="0.1"
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              required
-            />
+          <div className="space-y-1">
+            <label className="block text-xs font-bold text-slate-500 ml-1">目标热量缺口 (kcal)</label>
+            <div className="relative">
+                <input
+                    type="number"
+                    inputMode="numeric"
+                    name="calorieDeficit"
+                    value={formData.calorieDeficit}
+                    onChange={handleInputChange}
+                    className="w-full px-4 py-3 bg-gray-50 border-none rounded-xl focus:ring-2 focus:ring-blue-500/20 text-slate-800 font-bold"
+                    required
+                />
+                <div className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-slate-400 font-medium pointer-events-none">
+                    建议 500
+                </div>
+            </div>
+            <p className="text-[10px] text-slate-400 mt-2 ml-1 flex items-center">
+              <Check size={10} className="mr-1 text-green-500" />
+              约每周减重 0.5kg
+            </p>
           </div>
         </div>
         
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center">
-            <Activity className="mr-1" size={16} />
-            日常活动强度
-          </label>
-          <select
-            name="activityLevel"
-            value={formData.activityLevel}
-            onChange={handleInputChange}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-            required
-          >
-            {activityLevels.map(level => (
-              <option key={level.value} value={level.value}>
-                {level.label} - {level.description}
-              </option>
-            ))}
-          </select>
-        </div>
-        
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">目标热量缺口 (kcal)</label>
-          <input
-            type="number"
-            name="calorieDeficit"
-            value={formData.calorieDeficit}
-            onChange={handleInputChange}
-            min="0"
-            max="1000"
-            step="50"
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-            required
-          />
-          <p className="text-sm text-gray-500 mt-1">建议每日500kcal的热量缺口，可安全减重约0.5kg/周</p>
-        </div>
-        
-        <button
+        <motion.button
+          whileTap={{ scale: 0.98 }}
           type="submit"
-          className="w-full px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors"
+          className="w-full px-4 py-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold rounded-xl shadow-lg shadow-blue-500/30 hover:shadow-blue-500/40 transition-all text-sm"
         >
-          {profile ? '更新档案' : '保存档案'}
-        </button>
+          {profile ? '保存修改' : '创建档案'}
+        </motion.button>
       </form>
-    </div>
+    </motion.div>
   );
 };
 

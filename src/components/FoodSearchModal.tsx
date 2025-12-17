@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { Search, X, Check, Utensils, Info } from 'lucide-react';
 import { searchFoodLibrary } from '../services/bmob';
 import { FoodLibraryItem, FoodItem } from '../types';
@@ -124,14 +125,13 @@ const FoodSearchModal: React.FC<FoodSearchModalProps> = ({ isOpen, onClose, onSa
 
   if (!isOpen) return null;
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4 animate-in fade-in duration-200">
-      <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
-        
+  return createPortal(
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
+      <div className="bg-white rounded-3xl w-full max-w-lg h-[80vh] shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-200 relative">
         {/* Header */}
         {!isManualMode && (
-          <div className="p-4 border-b border-gray-100 flex items-center gap-3">
-            <div className="relative flex-1">
+          <div className="p-4 border-b border-gray-100 flex items-center gap-3 bg-white/80 backdrop-blur-md z-10">
+            <div className="flex-1 relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
               <input
                 ref={searchInputRef}
@@ -179,11 +179,12 @@ const FoodSearchModal: React.FC<FoodSearchModalProps> = ({ isOpen, onClose, onSa
                     className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none transition-all"
                   />
                 </div>
-
+                
                 <div>
                   <label className="block text-sm font-bold text-gray-700 mb-2">总热量 (kcal) <span className="text-red-500">*</span></label>
                   <input
                     type="number"
+                    inputMode="decimal"
                     value={manualData.calories}
                     onChange={(e) => setManualData({ ...manualData, calories: e.target.value })}
                     placeholder="0"
@@ -196,6 +197,7 @@ const FoodSearchModal: React.FC<FoodSearchModalProps> = ({ isOpen, onClose, onSa
                     <label className="block text-xs font-bold text-gray-500 mb-1">蛋白质 (g)</label>
                     <input
                       type="number"
+                      inputMode="decimal"
                       value={manualData.protein}
                       onChange={(e) => setManualData({ ...manualData, protein: e.target.value })}
                       placeholder="选填"
@@ -206,6 +208,7 @@ const FoodSearchModal: React.FC<FoodSearchModalProps> = ({ isOpen, onClose, onSa
                     <label className="block text-xs font-bold text-gray-500 mb-1">脂肪 (g)</label>
                     <input
                       type="number"
+                      inputMode="decimal"
                       value={manualData.fat}
                       onChange={(e) => setManualData({ ...manualData, fat: e.target.value })}
                       placeholder="选填"
@@ -216,6 +219,7 @@ const FoodSearchModal: React.FC<FoodSearchModalProps> = ({ isOpen, onClose, onSa
                     <label className="block text-xs font-bold text-gray-500 mb-1">碳水 (g)</label>
                     <input
                       type="number"
+                      inputMode="decimal"
                       value={manualData.carbs}
                       onChange={(e) => setManualData({ ...manualData, carbs: e.target.value })}
                       placeholder="选填"
@@ -352,6 +356,7 @@ const FoodSearchModal: React.FC<FoodSearchModalProps> = ({ isOpen, onClose, onSa
                 <div className="flex items-center gap-3">
                   <input
                     type="number"
+                    inputMode="decimal"
                     value={amount}
                     onChange={(e) => setAmount(Math.max(0, Number(e.target.value)))}
                     className="flex-1 text-3xl font-bold bg-white border border-gray-200 rounded-xl py-3 px-4 focus:ring-2 focus:ring-blue-500 outline-none text-center"
@@ -376,7 +381,8 @@ const FoodSearchModal: React.FC<FoodSearchModalProps> = ({ isOpen, onClose, onSa
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
 

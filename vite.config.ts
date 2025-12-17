@@ -7,7 +7,7 @@ import { traeBadgePlugin } from 'vite-plugin-trae-solo-badge';
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   return {
-    base: '/diet-tracker/',
+    base: './',
     build: {
       sourcemap: 'hidden',
     },

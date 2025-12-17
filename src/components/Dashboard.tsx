@@ -15,7 +15,8 @@ import {
 import { Chart } from 'react-chartjs-2';
 import { DailyRecord } from '../types';
 import { format, parseISO, subDays } from 'date-fns';
-import { TrendingUp, BarChart3, Scale } from 'lucide-react';
+import { TrendingUp, BarChart3, Scale, Activity, Calendar, Zap } from 'lucide-react';
+import { motion } from 'framer-motion';
 
 ChartJS.register(
   CategoryScale,
@@ -208,83 +209,103 @@ const Dashboard: React.FC<DashboardProps> = ({ dailyRecords, userProfile }) => {
   const avgExerciseCalories = chartData.reduce((sum, d) => sum + d.exerciseCalories, 0) / chartData.length;
   const avgNetCalories = avgFoodCalories - avgExerciseCalories;
 
+  const container = {
+    hidden: { opacity: 0 },
+    show: {
+      opacity: 1,
+      transition: {
+        staggerChildren: 0.1
+      }
+    }
+  };
+
+  const item = {
+    hidden: { opacity: 0, y: 20 },
+    show: { opacity: 1, y: 0 }
+  };
+
   return (
-    <div className="space-y-6">
+    <motion.div 
+      variants={container}
+      initial="hidden"
+      animate="show"
+      className="space-y-6"
+    >
       {/* Statistics Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white rounded-lg shadow-md p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600">体重记录天数</p>
-              <p className="text-2xl font-bold text-blue-600">{weightRecords}</p>
-            </div>
-            <TrendingUp className="text-blue-500" size={24} />
-          </div>
-        </div>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <motion.div variants={item} className="relative overflow-hidden bg-white/70 backdrop-blur-xl border border-white/40 shadow-sm rounded-2xl p-5 flex flex-col justify-between h-28 group hover:shadow-md transition-all">
+           {/* Content */}
+           <div className="relative z-10">
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">记录天数</p>
+              <p className="text-3xl font-black text-blue-600">{weightRecords}</p>
+           </div>
+           {/* Watermark */}
+           <Calendar className="absolute -right-4 -bottom-4 w-24 h-24 text-blue-600 -rotate-12 opacity-10 group-hover:scale-110 transition-transform duration-500" />
+        </motion.div>
         
-        <div className="bg-white rounded-lg shadow-md p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600">平均体重</p>
-              <p className="text-2xl font-bold text-green-600">{avgWeight.toFixed(1)} kg</p>
-            </div>
-            <Scale className="text-green-500" size={24} />
-          </div>
-        </div>
+        <motion.div variants={item} className="relative overflow-hidden bg-white/70 backdrop-blur-xl border border-white/40 shadow-sm rounded-2xl p-5 flex flex-col justify-between h-28 group hover:shadow-md transition-all">
+           {/* Content */}
+           <div className="relative z-10">
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">平均体重</p>
+              <p className="text-3xl font-black text-emerald-600">{avgWeight.toFixed(1)} <span className="text-sm font-bold text-emerald-600/50">kg</span></p>
+           </div>
+           {/* Watermark */}
+           <Scale className="absolute -right-4 -bottom-4 w-24 h-24 text-emerald-600 -rotate-12 opacity-10 group-hover:scale-110 transition-transform duration-500" />
+        </motion.div>
         
-        <div className="bg-white rounded-lg shadow-md p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600">体重变化</p>
-              <p className={`text-2xl font-bold ${weightChange < 0 ? 'text-green-600' : weightChange > 0 ? 'text-red-600' : 'text-gray-600'}`}>
-                {weightChange > 0 ? '+' : ''}{weightChange.toFixed(1)} kg
+        <motion.div variants={item} className="relative overflow-hidden bg-white/70 backdrop-blur-xl border border-white/40 shadow-sm rounded-2xl p-5 flex flex-col justify-between h-28 group hover:shadow-md transition-all">
+           {/* Content */}
+           <div className="relative z-10">
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">体重变化</p>
+              <p className={`text-3xl font-black ${weightChange < 0 ? 'text-green-500' : weightChange > 0 ? 'text-red-500' : 'text-purple-600'}`}>
+                {weightChange > 0 ? '+' : ''}{weightChange.toFixed(1)} <span className="text-sm font-bold opacity-50">kg</span>
               </p>
-            </div>
-            <BarChart3 className="text-purple-500" size={24} />
-          </div>
-        </div>
+           </div>
+           {/* Watermark */}
+           <TrendingUp className="absolute -right-4 -bottom-4 w-24 h-24 text-purple-600 -rotate-12 opacity-10 group-hover:scale-110 transition-transform duration-500" />
+        </motion.div>
         
-        <div className="bg-white rounded-lg shadow-md p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600">平均净摄入</p>
-              <p className="text-2xl font-bold text-orange-600">{avgNetCalories.toFixed(0)} kcal</p>
-            </div>
-            <BarChart3 className="text-orange-500" size={24} />
-          </div>
-        </div>
+        <motion.div variants={item} className="relative overflow-hidden bg-white/70 backdrop-blur-xl border border-white/40 shadow-sm rounded-2xl p-5 flex flex-col justify-between h-28 group hover:shadow-md transition-all">
+           {/* Content */}
+           <div className="relative z-10">
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">平均净摄入</p>
+              <p className="text-3xl font-black text-orange-600">{avgNetCalories.toFixed(0)} <span className="text-sm font-bold text-orange-600/50">kcal</span></p>
+           </div>
+           {/* Watermark */}
+           <Zap className="absolute -right-4 -bottom-4 w-24 h-24 text-orange-600 -rotate-12 opacity-10 group-hover:scale-110 transition-transform duration-500" />
+        </motion.div>
       </div>
 
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Weight Trend Chart */}
-        <div className="bg-white rounded-lg shadow-md p-6">
+        <motion.div variants={item} className="backdrop-blur-xl bg-white/80 rounded-2xl shadow-lg shadow-blue-500/5 border border-white/20 p-6">
           <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center">
-            <TrendingUp className="mr-2" size={20} />
+            <TrendingUp className="mr-2 text-blue-500" size={20} />
             体重变化趋势
           </h3>
           <div className="h-80">
             <Chart type="line" data={weightChartData} options={weightChartOptions} />
           </div>
-        </div>
+        </motion.div>
 
         {/* Calorie Balance Chart */}
-        <div className="bg-white rounded-lg shadow-md p-6">
+        <motion.div variants={item} className="backdrop-blur-xl bg-white/80 rounded-2xl shadow-lg shadow-blue-500/5 border border-white/20 p-6">
           <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center">
-            <BarChart3 className="mr-2" size={20} />
+            <BarChart3 className="mr-2 text-orange-500" size={20} />
             热量收支对比
           </h3>
           <div className="h-80">
             <Chart type="bar" data={calorieChartData} options={calorieChartOptions} />
           </div>
-        </div>
+        </motion.div>
       </div>
 
       {/* Additional Insights */}
-      <div className="bg-white rounded-lg shadow-md p-6">
+      <motion.div variants={item} className="backdrop-blur-xl bg-white/80 rounded-2xl shadow-lg shadow-blue-500/5 border border-white/20 p-6">
         <h3 className="text-lg font-semibold text-gray-800 mb-4">健康建议</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="p-4 bg-blue-50 rounded-lg">
+          <div className="p-4 bg-blue-50/50 rounded-xl border border-blue-100/50">
             <h4 className="font-medium text-blue-800 mb-2">体重趋势</h4>
             <p className="text-sm text-blue-700">
               {weightChange < 0 
@@ -296,7 +317,7 @@ const Dashboard: React.FC<DashboardProps> = ({ dailyRecords, userProfile }) => {
             </p>
           </div>
           
-          <div className="p-4 bg-green-50 rounded-lg">
+          <div className="p-4 bg-green-50/50 rounded-xl border border-green-100/50">
             <h4 className="font-medium text-green-800 mb-2">热量平衡</h4>
             <p className="text-sm text-green-700">
               {avgNetCalories < (userProfile?.dailyCalorieLimit || 0)
@@ -308,8 +329,8 @@ const Dashboard: React.FC<DashboardProps> = ({ dailyRecords, userProfile }) => {
             </p>
           </div>
         </div>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 };
 

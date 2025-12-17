@@ -12,6 +12,8 @@ import Store from './components/Store';
 import NotificationCenter from './components/NotificationCenter';
 import { format } from 'date-fns';
 import { User, Calendar, BarChart3, CheckSquare, ShoppingBag } from 'lucide-react';
+import { AnimatePresence, motion } from 'framer-motion';
+import PageTransition from './components/PageTransition';
 
 import { ToastProvider } from './components/Toast';
 
@@ -90,19 +92,19 @@ function App() {
 
   return (
     <ToastProvider>
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
       {/* Header */}
-      <header className="bg-white shadow-sm border-b">
+      <header className="bg-white/80 backdrop-blur-md shadow-sm border-b border-white/20 sticky top-0 z-40 pt-[env(safe-area-inset-top)]">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-4">
-            <h1 className="text-2xl font-bold text-gray-900">减肥追踪看板</h1>
+            <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">减肥追踪看板</h1>
             <div className="flex items-center gap-4">
                 {user && (
                     <NotificationCenter onProfileUpdate={handleProfileUpdate} />
                 )}
                 <button
                     onClick={handleLogout}
-                    className="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-md"
+                    className="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-md transition-colors"
                 >退出登录</button>
             </div>
           </div>
@@ -110,7 +112,7 @@ function App() {
       </header>
 
       {/* Desktop Navigation */}
-      <nav className="bg-white border-b hidden md:block">
+      <nav className="bg-white/80 backdrop-blur-md border-b border-white/20 hidden md:block">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center w-full">
             {/* Left Tabs */}
@@ -121,7 +123,7 @@ function App() {
                   <button
                     key={tab.id}
                     onClick={() => setActiveTab(tab.id)}
-                    className={`flex items-center px-3 py-4 text-sm font-medium border-b-2 transition-colors ${
+                    className={`flex items-center px-3 py-4 text-sm font-medium border-b-2 transition-colors relative ${
                       activeTab === tab.id
                         ? 'border-blue-500 text-blue-600'
                         : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
@@ -129,6 +131,12 @@ function App() {
                   >
                     <Icon className="mr-2" size={16} />
                     {tab.label}
+                    {activeTab === tab.id && (
+                      <motion.div
+                        layoutId="desktop-underline"
+                        className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-500"
+                      />
+                    )}
                   </button>
                 );
               })}
@@ -142,7 +150,7 @@ function App() {
                   <button
                     key={tab.id}
                     onClick={() => setActiveTab(tab.id)}
-                    className={`flex items-center px-3 py-4 text-sm font-medium border-b-2 transition-colors ${
+                    className={`flex items-center px-3 py-4 text-sm font-medium border-b-2 transition-colors relative ${
                       activeTab === tab.id
                         ? 'border-orange-500 text-orange-600'
                         : 'border-transparent text-orange-500 hover:text-orange-700 hover:border-orange-300'
@@ -150,6 +158,12 @@ function App() {
                   >
                     <Icon className="mr-2" size={16} />
                     {tab.label}
+                    {activeTab === tab.id && (
+                      <motion.div
+                        layoutId="desktop-underline-store"
+                        className="absolute bottom-0 left-0 right-0 h-0.5 bg-orange-500"
+                      />
+                    )}
                   </button>
                 );
               })}
@@ -159,21 +173,41 @@ function App() {
       </nav>
 
       {/* Mobile Navigation */}
-      <div className="fixed bottom-0 left-0 w-full bg-white border-t z-50 flex justify-around items-center h-16 pb-[env(safe-area-inset-bottom)] md:hidden shadow-[0_-1px_3px_rgba(0,0,0,0.05)]">
+      <div className="fixed bottom-0 left-0 w-full backdrop-blur-md bg-white/90 border-t border-gray-100 z-50 flex justify-around items-center h-16 pb-[env(safe-area-inset-bottom)] md:hidden shadow-[0_-1px_3px_rgba(0,0,0,0.05)]">
         {tabs.map(tab => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
           return (
-            <button
+            <motion.button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex flex-col items-center justify-center w-full h-full space-y-1 ${
+              className={`relative flex flex-col items-center justify-center w-full h-full space-y-1 ${
                 isActive ? (tab.id === 'store' ? 'text-orange-500' : 'text-blue-500') : 'text-gray-400'
               }`}
+              whileTap={{ scale: 0.9 }}
             >
-              <Icon size={24} strokeWidth={isActive ? 2.5 : 2} />
-              <span className="text-[10px] font-medium">{tab.label}</span>
-            </button>
+              {isActive && (
+                <motion.div
+                  layoutId="mobile-nav-indicator"
+                  className={`absolute inset-0 bg-gradient-to-t ${tab.id === 'store' ? 'from-orange-50' : 'from-blue-50'} to-transparent opacity-50`}
+                  initial={false}
+                  transition={{ type: "spring", stiffness: 500, damping: 30 }}
+                />
+              )}
+              <motion.div
+                animate={isActive ? { y: -2 } : { y: 0 }}
+                transition={{ type: "spring", stiffness: 300, damping: 20 }}
+              >
+                <Icon size={24} strokeWidth={isActive ? 2.5 : 2} />
+              </motion.div>
+              <span className="text-[10px] font-medium z-10">{tab.label}</span>
+              {isActive && (
+                 <motion.div
+                    layoutId="mobile-nav-dot"
+                    className={`absolute bottom-1 w-1 h-1 rounded-full ${tab.id === 'store' ? 'bg-orange-500' : 'bg-blue-500'}`}
+                 />
+              )}
+            </motion.button>
           );
         })}
       </div>
@@ -181,104 +215,119 @@ function App() {
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pb-24 md:pb-8">
         {loading && (
-          <div className="fixed inset-0 bg-black/20 flex items-center justify-center z-50">
-            <div className="bg-white rounded-md px-6 py-4 text-gray-700 shadow">
+          <div className="fixed inset-0 bg-black/20 flex items-center justify-center z-50 backdrop-blur-sm">
+            <div className="bg-white/90 backdrop-blur rounded-2xl px-6 py-4 text-gray-700 shadow-xl border border-white/20">
               加载中...
             </div>
           </div>
         )}
-        {activeTab === 'profile' && (
-          <UserProfileComponent
-            profile={userProfile}
-            onProfileUpdate={handleProfileUpdate}
-          />
-        )}
+        
+        <AnimatePresence mode="wait">
+            {activeTab === 'profile' && (
+            <PageTransition key="profile">
+                <UserProfileComponent
+                    profile={userProfile}
+                    onProfileUpdate={handleProfileUpdate}
+                />
+            </PageTransition>
+            )}
 
-        {activeTab === 'logger' && userProfile && userMetrics && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-2">
-              <DailyLogger
-                userProfile={userMetrics}
-                selectedDate={selectedDate}
-                onDateChange={setSelectedDate}
-              />
-            </div>
-            <div className="space-y-6">
-              {/* Quick Stats */}
-              <div className="bg-white rounded-lg shadow-md p-6">
-                <h3 className="text-lg font-semibold text-gray-800 mb-4">今日概览</h3>
-                <div className="space-y-3">
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">当前体重:</span>
-                    <span className="font-medium">{userProfile.weight} kg</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">BMI:</span>
-                    <span className="font-medium">{userMetrics.bmi.toFixed(1)} ({userMetrics.bmiCategory})</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">BMR:</span>
-                    <span className="font-medium">{userMetrics.bmr.toFixed(0)} kcal</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">TDEE:</span>
-                    <span className="font-medium">{userMetrics.tdee.toFixed(0)} kcal</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">建议摄入:</span>
-                    <span className="font-medium text-blue-600">{userMetrics.dailyCalorieLimit.toFixed(0)} kcal</span>
-                  </div>
+            {activeTab === 'logger' && userProfile && userMetrics && (
+            <PageTransition key="logger">
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <div className="lg:col-span-2">
+                    <DailyLogger
+                        userProfile={userMetrics}
+                        selectedDate={selectedDate}
+                        onDateChange={setSelectedDate}
+                    />
+                    </div>
+                    <div className="space-y-6">
+                    {/* Quick Stats */}
+                    <div className="backdrop-blur-xl bg-white/80 border border-white/20 shadow-lg shadow-blue-500/5 rounded-2xl p-6">
+                        <h3 className="text-lg font-semibold text-gray-800 mb-4">今日概览</h3>
+                        <div className="space-y-3">
+                        <div className="flex justify-between">
+                            <span className="text-gray-600">当前体重:</span>
+                            <span className="font-medium">{userProfile.weight} kg</span>
+                        </div>
+                        <div className="flex justify-between">
+                            <span className="text-gray-600">BMI:</span>
+                            <span className="font-medium">{userMetrics.bmi.toFixed(1)} ({userMetrics.bmiCategory})</span>
+                        </div>
+                        <div className="flex justify-between">
+                            <span className="text-gray-600">BMR:</span>
+                            <span className="font-medium">{userMetrics.bmr.toFixed(0)} kcal</span>
+                        </div>
+                        <div className="flex justify-between">
+                            <span className="text-gray-600">TDEE:</span>
+                            <span className="font-medium">{userMetrics.tdee.toFixed(0)} kcal</span>
+                        </div>
+                        <div className="flex justify-between">
+                            <span className="text-gray-600">建议摄入:</span>
+                            <span className="font-medium text-blue-600">{userMetrics.dailyCalorieLimit.toFixed(0)} kcal</span>
+                        </div>
+                        </div>
+                    </div>
+
+                    {/* Quick Tips */}
+                    <div className="backdrop-blur-xl bg-white/80 border border-white/20 shadow-lg shadow-blue-500/5 rounded-2xl p-6">
+                        <h3 className="text-lg font-semibold text-gray-800 mb-4">健康小贴士</h3>
+                        <div className="space-y-2 text-sm text-gray-600">
+                        <p>• 建议每日记录体重，追踪变化趋势</p>
+                        <p>• 保持500kcal的热量缺口，每周可减重约0.5kg</p>
+                        <p>• 确保摄入热量不低于BMR，避免代谢下降</p>
+                        <p>• 结合有氧运动和力量训练效果更佳</p>
+                        <p>• 多喝水，保证充足睡眠</p>
+                        </div>
+                    </div>
+                    </div>
                 </div>
-              </div>
+            </PageTransition>
+            )}
 
-              {/* Quick Tips */}
-              <div className="bg-white rounded-lg shadow-md p-6">
-                <h3 className="text-lg font-semibold text-gray-800 mb-4">健康小贴士</h3>
-                <div className="space-y-2 text-sm text-gray-600">
-                  <p>• 建议每日记录体重，追踪变化趋势</p>
-                  <p>• 保持500kcal的热量缺口，每周可减重约0.5kg</p>
-                  <p>• 确保摄入热量不低于BMR，避免代谢下降</p>
-                  <p>• 结合有氧运动和力量训练效果更佳</p>
-                  <p>• 多喝水，保证充足睡眠</p>
+            {activeTab === 'dashboard' && userProfile && userMetrics && (
+            <PageTransition key="dashboard">
+                <Dashboard
+                    dailyRecords={dailyRecords}
+                    userProfile={userMetrics}
+                />
+            </PageTransition>
+            )}
+
+            {activeTab === 'todo' && userProfile && (
+            <PageTransition key="todo">
+                <TodoList
+                    selectedDate={selectedDate}
+                    onDateChange={setSelectedDate}
+                />
+            </PageTransition>
+            )}
+
+            {activeTab === 'store' && userProfile && (
+            <PageTransition key="store">
+                <Store />
+            </PageTransition>
+            )}
+
+            {!userProfile && activeTab !== 'profile' && (
+            <PageTransition key="empty">
+                <div className="text-center py-12">
+                    <div className="text-gray-500 mb-4">
+                    <User size={48} className="mx-auto mb-4" />
+                    <h3 className="text-lg font-medium mb-2">请先创建个人档案</h3>
+                    <p className="mb-4">创建个人档案后，即可开始使用每日记录和数据看板功能</p>
+                    <button
+                        onClick={() => setActiveTab('profile')}
+                        className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors"
+                    >
+                        创建档案
+                    </button>
+                    </div>
                 </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'dashboard' && userProfile && userMetrics && (
-          <Dashboard
-            dailyRecords={dailyRecords}
-            userProfile={userMetrics}
-          />
-        )}
-
-        {activeTab === 'todo' && userProfile && (
-          <TodoList
-            selectedDate={selectedDate}
-            onDateChange={setSelectedDate}
-          />
-        )}
-
-        {activeTab === 'store' && userProfile && (
-          <Store />
-        )}
-
-        {!userProfile && activeTab !== 'profile' && (
-          <div className="text-center py-12">
-            <div className="text-gray-500 mb-4">
-              <User size={48} className="mx-auto mb-4" />
-              <h3 className="text-lg font-medium mb-2">请先创建个人档案</h3>
-              <p className="mb-4">创建个人档案后，即可开始使用每日记录和数据看板功能</p>
-              <button
-                onClick={() => setActiveTab('profile')}
-                className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors"
-              >
-                创建档案
-              </button>
-            </div>
-          </div>
-        )}
+            </PageTransition>
+            )}
+        </AnimatePresence>
       </main>
     </div>
     </ToastProvider>
