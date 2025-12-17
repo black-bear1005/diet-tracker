@@ -79,7 +79,8 @@ const UserProfile: React.FC<UserProfileProps> = ({ profile, onProfileUpdate }) =
         height,
         weight,
         calorieDeficit,
-        activityLevel: formData.activityLevel
+        activityLevel: formData.activityLevel,
+        isProfileCompleted: true
     };
 
     const calculatedMetrics = calculateMetrics(safeData);

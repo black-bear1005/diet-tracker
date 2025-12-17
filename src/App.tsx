@@ -45,7 +45,9 @@ function App() {
           const metrics = calculateMetrics(profile);
           setUserMetrics(metrics);
           // 仅当之前没有选中 tab 时才自动跳转，避免刷新干扰
-          if (activeTab === 'profile' && profile.weight) {
+          // 只有明确标记为未完成（isProfileCompleted === false）时才不跳转
+          // 兼容旧数据（undefined）和已完成数据（true）
+          if (activeTab === 'profile' && profile.isProfileCompleted !== false) {
              setActiveTab('logger');
           }
         }

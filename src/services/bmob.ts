@@ -223,6 +223,7 @@ export const getOrCreateUserProfile = async (): Promise<BackendUserProfile> => {
       activityLevel: 1.375,
       weight: 70, // 默认体重
       points: 100, // 默认积分
+      isProfileCompleted: false, // 标记为未完成，防止自动跳转
       // ACL: 公有读，私有写 (允许其他人查询到该用户的档案以进行绑定)
       ACL: { "*": { "read": true }, [uid]: { "write": true } }
     })
@@ -1074,8 +1075,10 @@ export const register = async (username: string, password: string, email?: strin
     method: 'POST',
     body: JSON.stringify({ username, password, ...(email ? { email } : {}) })
   });
-  setSession(user);
-  return user;
+  // 手动补充 username，因为注册接口可能不返回它，导致首次登录时 username 为 undefined
+  const userWithInfo = { ...user, username, ...(email ? { email } : {}) };
+  setSession(userWithInfo);
+  return userWithInfo;
 };
 
 // ==================== 通知系统 API ====================
