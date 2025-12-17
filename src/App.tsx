@@ -109,8 +109,8 @@ function App() {
         </div>
       </header>
 
-      {/* Navigation */}
-      <nav className="bg-white border-b">
+      {/* Desktop Navigation */}
+      <nav className="bg-white border-b hidden md:block">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center w-full">
             {/* Left Tabs */}
@@ -158,8 +158,28 @@ function App() {
         </div>
       </nav>
 
+      {/* Mobile Navigation */}
+      <div className="fixed bottom-0 left-0 w-full bg-white border-t z-50 flex justify-around items-center h-16 pb-[env(safe-area-inset-bottom)] md:hidden shadow-[0_-1px_3px_rgba(0,0,0,0.05)]">
+        {tabs.map(tab => {
+          const Icon = tab.icon;
+          const isActive = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex flex-col items-center justify-center w-full h-full space-y-1 ${
+                isActive ? (tab.id === 'store' ? 'text-orange-500' : 'text-blue-500') : 'text-gray-400'
+              }`}
+            >
+              <Icon size={24} strokeWidth={isActive ? 2.5 : 2} />
+              <span className="text-[10px] font-medium">{tab.label}</span>
+            </button>
+          );
+        })}
+      </div>
+
       {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pb-24 md:pb-8">
         {loading && (
           <div className="fixed inset-0 bg-black/20 flex items-center justify-center z-50">
             <div className="bg-white rounded-md px-6 py-4 text-gray-700 shadow">
@@ -260,15 +280,6 @@ function App() {
           </div>
         )}
       </main>
-
-      {/* Footer */}
-      <footer className="bg-white border-t mt-12">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          <div className="text-center text-sm text-gray-500">
-            <p>减肥追踪看板 - 科学管理，健康减重</p>
-          </div>
-        </div>
-      </footer>
     </div>
     </ToastProvider>
   );

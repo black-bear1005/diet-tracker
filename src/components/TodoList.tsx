@@ -301,7 +301,7 @@ const TodoList: React.FC<TodoListProps> = ({ selectedDate, onDateChange }) => {
       </h2>
 
       {/* Weekly Calendar Strip */}
-      <div className="mb-8 bg-white rounded-xl shadow-sm p-4 border border-gray-100">
+      <div className="mb-8 bg-white rounded-xl shadow-sm p-4 border border-gray-100 overflow-hidden">
         <div className="flex justify-between items-center mb-4">
           <div className="flex items-center space-x-2">
             <button
@@ -326,11 +326,12 @@ const TodoList: React.FC<TodoListProps> = ({ selectedDate, onDateChange }) => {
             className="flex items-center text-sm text-blue-600 hover:text-blue-700 font-medium px-3 py-1.5 rounded-full hover:bg-blue-50 transition-colors"
           >
             <RotateCcw size={14} className="mr-1.5" />
-            回到今天
+            <span className="hidden sm:inline">回到今天</span>
+            <span className="sm:hidden">今天</span>
           </button>
         </div>
         
-        <div className="grid grid-cols-7 gap-2">
+        <div className="flex justify-between overflow-x-auto no-scrollbar gap-1 sm:grid sm:grid-cols-7 sm:gap-2">
           {getDaysInWeek().map(day => {
             const isSelected = isSameDay(day, selectedDate);
             const isTodayDate = isToday(day);
@@ -339,16 +340,16 @@ const TodoList: React.FC<TodoListProps> = ({ selectedDate, onDateChange }) => {
               <button
                 key={day.toISOString()}
                 onClick={() => onDateChange(day)}
-                className={`flex flex-col items-center justify-center py-3 rounded-2xl transition-all duration-200 ${
+                className={`flex flex-col items-center justify-center py-2 sm:py-3 px-2 min-w-[3rem] sm:min-w-0 rounded-2xl transition-all duration-200 flex-1 ${
                   isSelected
                     ? 'bg-blue-500 text-white shadow-md transform scale-105'
                     : 'text-gray-500 hover:bg-gray-50'
                 }`}
               >
-                <span className={`text-xs mb-1 font-medium ${isSelected ? 'text-blue-100' : 'text-gray-400'}`}>
+                <span className={`text-[10px] sm:text-xs mb-1 font-medium ${isSelected ? 'text-blue-100' : 'text-gray-400'}`}>
                   {format(day, 'EEE', { locale: zhCN })}
                 </span>
-                <span className={`text-lg font-bold ${isSelected ? 'text-white' : 'text-gray-700'}`}>
+                <span className={`text-base sm:text-lg font-bold ${isSelected ? 'text-white' : 'text-gray-700'}`}>
                   {format(day, 'd')}
                 </span>
                 {isTodayDate && !isSelected && (

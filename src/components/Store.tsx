@@ -160,7 +160,7 @@ export default function Store() {
                     <Loader2 className="w-8 h-8 animate-spin text-orange-500" />
                 </div>
             ) : (
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
                     {activeTab === 'buy' ? (
                         // Shop Items
                         SHOP_ITEMS.map((item) => {

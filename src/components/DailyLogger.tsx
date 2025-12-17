@@ -350,7 +350,7 @@ const DailyLogger: React.FC<DailyLoggerProps> = ({ userProfile, selectedDate, on
             </div>
             <button
               onClick={addExercise}
-              className="px-6 bg-orange-500 text-white rounded-xl hover:bg-orange-600 transition-colors shadow-sm active:scale-95 transform font-medium"
+              className="px-6 min-h-[44px] bg-orange-500 text-white rounded-xl hover:bg-orange-600 transition-colors shadow-sm active:scale-95 transform font-medium flex items-center justify-center"
             >
               打卡
             </button>
