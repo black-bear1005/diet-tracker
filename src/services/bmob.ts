@@ -446,6 +446,9 @@ export interface BackendTodo {
   assigneeId?: string;
   creatorId?: string;
   rewardPoints?: number;
+  type?: 'normal' | 'forced_task';
+  isPunished?: boolean;
+  punishmentContent?: string;
 }
 
 export const getTodos = async (date: string): Promise<BackendTodo[]> => {
@@ -843,6 +846,17 @@ export const finalizeBind = async (partnerId: string, partnerName: string, notif
 };
 
 import { subDays, startOfDay, isBefore, parseISO } from 'date-fns';
+import { SHOP_ITEMS, PUNISHMENTS } from '../utils/constants';
+
+export interface InventoryItem {
+    objectId?: string;
+    userId: string;
+    itemId: string;
+    itemName: string;
+    status: 'unused' | 'used';
+    createdAt?: string;
+}
+
 
 export const processExpiredTasks = async (): Promise<void> => {
     const uid = getCurrentUserId();
@@ -865,7 +879,46 @@ export const processExpiredTasks = async (): Promise<void> => {
     let refundTotal = 0;
     
     for (const task of list.results) {
-        // 更新状态
+        // 处理强制任务惩罚
+        if (task.type === 'forced_task') {
+            const punishment = PUNISHMENTS[Math.floor(Math.random() * PUNISHMENTS.length)];
+            
+            await rest(`/classes/Todo/${task.objectId}`, {
+                method: 'PUT',
+                body: JSON.stringify({ 
+                    status: 'expired',
+                    isPunished: true,
+                    punishmentContent: punishment
+                })
+            });
+
+            // 通知执行人 (对方)
+            if (task.assigneeId) {
+                try {
+                    await sendNotification(
+                        task.assigneeId,
+                        'task_expired',
+                        '☠️ 任务超时惩罚生效！',
+                        `强制任务“${task.content}”未完成！惩罚：${punishment}`,
+                        task.objectId
+                    );
+                } catch (e) { console.warn('通知失败', e); }
+            }
+            
+            // 通知创建人 (自己)
+            await sendNotification(
+                uid,
+                'task_expired',
+                '😈 对方受到惩罚',
+                `对方未完成强制任务，已触发惩罚：${punishment}`,
+                task.objectId
+            );
+            
+            // 强制任务不退分
+            continue;
+        }
+
+        // 普通任务过期处理
         await rest(`/classes/Todo/${task.objectId}`, {
             method: 'PUT',
             body: JSON.stringify({ status: 'expired' })
@@ -905,6 +958,114 @@ export const deleteTodo = async (id: string): Promise<void> => {
   await rest(`/classes/Todo/${id}`, {
     method: 'DELETE'
   });
+};
+
+export const buyItem = async (itemId: string, cost: number): Promise<void> => {
+    const uid = getCurrentUserId();
+    if (!uid) throw new Error('Not logged in');
+
+    const itemInfo = SHOP_ITEMS.find(i => i.id === itemId);
+    if (!itemInfo) throw new Error('商品不存在');
+
+    // 1. Check Balance & Deduct Points
+    const profile = await getOrCreateUserProfile();
+    if ((profile.points || 0) < cost) {
+        throw new Error('积分不足');
+    }
+
+    // Atomic-like operation? Bmob doesn't support transactions easily via REST without Cloud Code.
+    // We will deduct points first.
+    await updateUserProfileFields(profile, {
+        points: (profile.points || 0) - cost
+    });
+
+    try {
+        // 2. Add to Inventory
+        await rest('/classes/InventoryItem', {
+            method: 'POST',
+            body: JSON.stringify({
+                userId: uid,
+                itemId,
+                itemName: itemInfo.name,
+                status: 'unused',
+                ACL: { [uid]: { read: true, write: true } }
+            })
+        });
+    } catch (e) {
+        // Rollback points if inventory fails (best effort)
+        console.error('Inventory creation failed, refunding points...', e);
+        await updateUserProfileFields(profile, {
+            points: (profile.points || 0) // Reset to original? No, we just subtracted. Add it back.
+            // Wait, profile.points is the OLD value.
+            // We just updated it.
+            // Let's just add cost back.
+        });
+        // Re-fetch to be safe
+        const current = await getOrCreateUserProfile();
+        await updateUserProfileFields(current, {
+             points: (current.points || 0) + cost
+        });
+        throw new Error('购买失败，积分已退回');
+    }
+};
+
+export const getMyInventory = async (): Promise<InventoryItem[]> => {
+    const uid = getCurrentUserId();
+    if (!uid) return [];
+
+    const query = encodeURIComponent(JSON.stringify({
+        userId: uid,
+        status: 'unused'
+    }));
+    const list = await safeQuery(`/classes/InventoryItem?where=${query}&order=-createdAt`);
+    return list.results || [];
+};
+
+export const useItem = async (inventoryId: string, itemId: string): Promise<void> => {
+    const uid = getCurrentUserId();
+    if (!uid) throw new Error('Not logged in');
+
+    const profile = await getOrCreateUserProfile();
+    if (!profile.partnerId) {
+        throw new Error('你需要先绑定伴侣才能使用此道具！');
+    }
+
+    const itemInfo = SHOP_ITEMS.find(i => i.id === itemId);
+    const itemName = itemInfo ? itemInfo.name : '神秘道具';
+
+    // 1. Consume Item
+    await rest(`/classes/InventoryItem/${inventoryId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ status: 'used' })
+    });
+
+    // 2. Create Forced Task
+    const todayStr = new Date().toISOString().split('T')[0];
+    await rest('/classes/Todo', {
+        method: 'POST',
+        body: JSON.stringify({
+            userId: uid, // Creator
+            assigneeId: profile.partnerId, // Target
+            content: `[强制] 对方对你使用了道具：${itemName}`,
+            date: todayStr,
+            status: 'pending',
+            type: 'forced_task',
+            isPunished: false,
+            ACL: {
+                [uid]: { read: true, write: true },
+                [profile.partnerId]: { read: true, write: true }
+            }
+        })
+    });
+
+    // 3. Notify Partner
+    await sendNotification(
+        profile.partnerId,
+        'system',
+        '⚡️ 遭到道具攻击！',
+        `${profile.username || '对方'} 对你使用了【${itemName}】，请立即查看任务列表！`,
+        inventoryId
+    );
 };
 
 export const register = async (username: string, password: string, email?: string) => {

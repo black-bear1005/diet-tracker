@@ -3,7 +3,7 @@ import { format, startOfWeek, endOfWeek, eachDayOfInterval, isSameDay, addWeeks,
 import { zhCN } from 'date-fns/locale';
 import { 
   Calendar as CalendarIcon, ChevronLeft, ChevronRight, RotateCcw, Plus, Check, Trash2, 
-  Square, CheckSquare, Users, User, Clock, Coins, AlertCircle, Gift, Heart 
+  Square, CheckSquare, Users, User, Clock, Coins, AlertCircle, Gift, Heart, Flame, ShieldAlert
 } from 'lucide-react';
 import { 
   BackendTodo, getTodos, addTodo, toggleTodo, deleteTodo, 
@@ -12,6 +12,7 @@ import {
   getCurrentUserId, getOrCreateUserProfile, BackendUserProfile 
 } from '../services/bmob';
 import { useToast } from './Toast';
+import ConfirmDialog from './ConfirmDialog';
 
 interface TodoListProps {
   selectedDate: Date;
@@ -30,6 +31,22 @@ const TodoList: React.FC<TodoListProps> = ({ selectedDate, onDateChange }) => {
   const [rewardPoints, setRewardPoints] = useState<number | string>(0);
   const [userProfile, setUserProfile] = useState<BackendUserProfile | null>(null);
   const currentUserId = getCurrentUserId();
+
+  // Dialog State
+  const [dialogState, setDialogState] = useState<{
+      isOpen: boolean;
+      title: string;
+      message: string;
+      onConfirm: () => void;
+      type: 'info' | 'danger' | 'warning';
+      confirmText?: string;
+  }>({
+      isOpen: false,
+      title: '',
+      message: '',
+      onConfirm: () => {},
+      type: 'info'
+  });
 
   // Date synchronization
   useEffect(() => {
@@ -200,8 +217,7 @@ const TodoList: React.FC<TodoListProps> = ({ selectedDate, onDateChange }) => {
     }
   };
 
-  const handleRejectTask = async (todo: BackendTodo) => {
-      if (!window.confirm('确定要驳回这个任务吗？')) return;
+  const processRejectTask = async (todo: BackendTodo) => {
       try {
           // Optimistic
           setTodos(prev => prev.map(t => t.objectId === todo.objectId ? { ...t, status: 'pending' } as BackendTodo : t));
@@ -212,8 +228,18 @@ const TodoList: React.FC<TodoListProps> = ({ selectedDate, onDateChange }) => {
       }
   };
 
-  const handleDeleteTodo = async (id: string) => {
-    if (!window.confirm('确定要删除这个任务吗？')) return;
+  const handleRejectTask = (todo: BackendTodo) => {
+      setDialogState({
+          isOpen: true,
+          title: '驳回任务',
+          message: '确定要驳回这个任务吗？对方需要重新提交。',
+          type: 'warning',
+          confirmText: '确认驳回',
+          onConfirm: () => processRejectTask(todo)
+      });
+  };
+
+  const processDeleteTodo = async (id: string) => {
     try {
       const updatedTodos = todos.filter(t => t.objectId !== id);
       setTodos(updatedTodos);
@@ -223,13 +249,39 @@ const TodoList: React.FC<TodoListProps> = ({ selectedDate, onDateChange }) => {
     }
   };
 
+  const handleDeleteTodo = (todo: BackendTodo) => {
+    // Check if it's a forced task and if current user is the creator (item user)
+    // forced_task: creatorId is the one who used the item, assigneeId is the one who performs the task
+    // Only creator can delete forced tasks
+    if (todo.type === 'forced_task' && todo.creatorId !== currentUserId) {
+        showToast('强制任务只能由发起人（使用道具的一方）删除！', 'error');
+        return;
+    }
+
+    setDialogState({
+        isOpen: true,
+        title: '删除任务',
+        message: '确定要删除这个任务吗？此操作不可恢复。',
+        type: 'danger',
+        confirmText: '确认删除',
+        onConfirm: () => todo.objectId && processDeleteTodo(todo.objectId)
+    });
+  };
+
   const getDaysInWeek = () => {
     const start = currentWeekStart;
     const end = endOfWeek(currentWeekStart, { weekStartsOn: 0 });
     return eachDayOfInterval({ start, end });
   };
 
-  const activeTodos = todos.filter(t => t.status !== 'completed' && t.status !== 'expired');
+  const activeTodos = todos
+    .filter(t => t.status !== 'completed' && t.status !== 'expired')
+    .sort((a, b) => {
+        // Forced tasks first
+        if (a.type === 'forced_task' && b.type !== 'forced_task') return -1;
+        if (a.type !== 'forced_task' && b.type === 'forced_task') return 1;
+        return 0;
+    });
   const completedTodos = todos.filter(t => t.status === 'completed');
   const expiredTodos = todos.filter(t => t.status === 'expired');
 
@@ -391,18 +443,21 @@ const TodoList: React.FC<TodoListProps> = ({ selectedDate, onDateChange }) => {
                 const isCreatedByMe = todo.creatorId === currentUserId;
                 const isPartnerTask = todo.creatorId !== todo.assigneeId;
                 const isPendingApproval = todo.status === 'pending_approval';
+                const isForced = todo.type === 'forced_task';
                 
                 return (
                     <div 
                         key={todo.objectId} 
-                        className={`group flex items-center p-4 bg-white rounded-xl border shadow-sm hover:shadow-md transition-all ${
+                        className={`group flex items-center p-4 rounded-xl border shadow-sm hover:shadow-md transition-all ${
+                            isForced ? 'bg-red-50 border-red-200 shadow-red-100' :
                             !isAssignedToMe ? 'border-pink-100 bg-pink-50/30' : 
-                            isPendingApproval ? 'border-yellow-200 bg-yellow-50/50' : 'border-gray-100'
+                            isPendingApproval ? 'border-yellow-200 bg-yellow-50/50' : 'bg-white border-gray-100'
                         }`}
                     >
                         <button
                         onClick={() => handleToggleTodo(todo)}
                         className={`mr-4 transition-colors ${
+                            isForced ? 'text-red-500 hover:text-red-600' :
                             isPendingApproval 
                                 ? 'text-yellow-500 hover:text-yellow-600' 
                                 : 'text-gray-300 hover:text-blue-500'
@@ -413,14 +468,20 @@ const TodoList: React.FC<TodoListProps> = ({ selectedDate, onDateChange }) => {
                                 : (isAssignedToMe ? "点击完成" : "等待对方完成")
                         }
                         >
-                        {isPendingApproval ? <Clock size={24} /> : <Square size={24} />}
+                        {isPendingApproval ? <Clock size={24} /> : (isForced ? <Flame size={24} /> : <Square size={24} />)}
                         </button>
                         
                         <div className="flex-1">
                             <div className="flex items-center gap-2 mb-1">
-                                <span className={`font-medium text-lg ${isPendingApproval ? 'text-gray-600' : 'text-gray-800'}`}>
+                                <span className={`font-medium text-lg ${isPendingApproval ? 'text-gray-600' : (isForced ? 'text-red-700 font-bold' : 'text-gray-800')}`}>
                                     {todo.content}
                                 </span>
+                                {isForced && (
+                                    <span className="text-xs font-bold text-white bg-red-500 px-2 py-0.5 rounded-full flex items-center">
+                                        <ShieldAlert size={10} className="mr-1" />
+                                        强制执行
+                                    </span>
+                                )}
                                 {todo.rewardPoints && todo.rewardPoints > 0 && (
                                     <span className="flex items-center text-xs font-bold text-yellow-600 bg-yellow-100 px-2 py-0.5 rounded-full">
                                         <Coins size={10} className="mr-1" />
@@ -443,6 +504,11 @@ const TodoList: React.FC<TodoListProps> = ({ selectedDate, onDateChange }) => {
                                         )}
                                     </span>
                                 )}
+                                {isForced && !isPendingApproval && (
+                                    <span className="text-red-400 flex items-center">
+                                        ⚠️ 必须完成，否则将受到随机惩罚！
+                                    </span>
+                                )}
                             </div>
                         </div>
 
@@ -459,7 +525,7 @@ const TodoList: React.FC<TodoListProps> = ({ selectedDate, onDateChange }) => {
                             )}
                             
                             <button
-                                onClick={() => todo.objectId && handleDeleteTodo(todo.objectId)}
+                                onClick={() => handleDeleteTodo(todo)}
                                 className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg"
                                 title="删除任务"
                             >
@@ -496,7 +562,7 @@ const TodoList: React.FC<TodoListProps> = ({ selectedDate, onDateChange }) => {
                          )}
                       </div>
                       <button
-                        onClick={() => todo.objectId && handleDeleteTodo(todo.objectId)}
+                        onClick={() => handleDeleteTodo(todo)}
                         className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg opacity-0 group-hover:opacity-100 transition-all"
                       >
                         <Trash2 size={18} />
@@ -512,28 +578,35 @@ const TodoList: React.FC<TodoListProps> = ({ selectedDate, onDateChange }) => {
               <div className="pt-4">
                 <div className="text-xs font-bold text-gray-400 mb-2 uppercase tracking-wider flex items-center">
                     <AlertCircle size={12} className="mr-1" />
-                    已过期 (积分已退还)
+                    已过期
                 </div>
                 <div className="space-y-2">
                   {expiredTodos.map(todo => (
                     <div 
                       key={todo.objectId} 
-                      className="group flex items-center p-3 bg-gray-100 rounded-xl border border-transparent transition-all opacity-50"
+                      className={`group flex items-center p-3 rounded-xl border border-transparent transition-all ${
+                          todo.isPunished ? 'bg-red-50 opacity-90' : 'bg-gray-100 opacity-50'
+                      }`}
                     >
-                      <div className="mr-4 text-gray-300">
-                        <Square size={24} />
+                      <div className={`mr-4 ${todo.isPunished ? 'text-red-300' : 'text-gray-300'}`}>
+                        {todo.isPunished ? <ShieldAlert size={24} /> : <Square size={24} />}
                       </div>
                       <div className="flex-1">
-                         <span className="text-gray-500 line-through">{todo.content}</span>
-                         {todo.rewardPoints && todo.rewardPoints > 0 && (
+                         <span className={`${todo.isPunished ? 'text-red-800 line-through' : 'text-gray-500 line-through'}`}>{todo.content}</span>
+                         {todo.rewardPoints && todo.rewardPoints > 0 && !todo.isPunished && (
                             <span className="ml-2 inline-flex items-center text-xs text-gray-400">
                                 <Coins size={10} className="mr-0.5" />
                                 退还 {todo.rewardPoints}
                             </span>
                          )}
+                         {todo.isPunished && (
+                             <div className="text-xs font-bold text-red-600 mt-1">
+                                 ⚠️ 惩罚生效：{todo.punishmentContent}
+                             </div>
+                         )}
                       </div>
                       <button
-                        onClick={() => todo.objectId && handleDeleteTodo(todo.objectId)}
+                        onClick={() => handleDeleteTodo(todo)}
                         className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg opacity-0 group-hover:opacity-100 transition-all"
                       >
                         <Trash2 size={18} />
@@ -546,6 +619,16 @@ const TodoList: React.FC<TodoListProps> = ({ selectedDate, onDateChange }) => {
           </>
         )}
       </div>
+
+      <ConfirmDialog
+          isOpen={dialogState.isOpen}
+          onClose={() => setDialogState(prev => ({ ...prev, isOpen: false }))}
+          onConfirm={dialogState.onConfirm}
+          title={dialogState.title}
+          message={dialogState.message}
+          type={dialogState.type}
+          confirmText={dialogState.confirmText}
+      />
     </div>
   );
 };

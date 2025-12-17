@@ -8,13 +8,14 @@ import UserProfileComponent from './components/UserProfile';
 import DailyLogger from './components/DailyLogger';
 import Dashboard from './components/Dashboard';
 import TodoList from './components/TodoList';
+import Store from './components/Store';
 import NotificationCenter from './components/NotificationCenter';
 import { format } from 'date-fns';
-import { User, Calendar, BarChart3, CheckSquare } from 'lucide-react';
+import { User, Calendar, BarChart3, CheckSquare, ShoppingBag } from 'lucide-react';
 
 import { ToastProvider } from './components/Toast';
 
-type TabType = 'profile' | 'logger' | 'dashboard' | 'todo';
+type TabType = 'profile' | 'logger' | 'dashboard' | 'todo' | 'store';
 
 function App() {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
@@ -73,7 +74,8 @@ function App() {
     { id: 'profile' as TabType, label: '个人档案', icon: User },
     { id: 'logger' as TabType, label: '每日记录', icon: Calendar },
     { id: 'dashboard' as TabType, label: '数据看板', icon: BarChart3 },
-    { id: 'todo' as TabType, label: '今日待办', icon: CheckSquare }
+    { id: 'todo' as TabType, label: '今日待办', icon: CheckSquare },
+    { id: 'store' as TabType, label: '积分商城', icon: ShoppingBag }
   ];
 
   if (!user) {
@@ -108,24 +110,48 @@ function App() {
       {/* Navigation */}
       <nav className="bg-white border-b">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex space-x-8">
-            {tabs.map(tab => {
-              const Icon = tab.icon;
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`flex items-center px-3 py-4 text-sm font-medium border-b-2 transition-colors ${
-                    activeTab === tab.id
-                      ? 'border-blue-500 text-blue-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                  }`}
-                >
-                  <Icon className="mr-2" size={16} />
-                  {tab.label}
-                </button>
-              );
-            })}
+          <div className="flex justify-between items-center w-full">
+            {/* Left Tabs */}
+            <div className="flex space-x-8">
+              {tabs.filter(t => t.id !== 'store').map(tab => {
+                const Icon = tab.icon;
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`flex items-center px-3 py-4 text-sm font-medium border-b-2 transition-colors ${
+                      activeTab === tab.id
+                        ? 'border-blue-500 text-blue-600'
+                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                    }`}
+                  >
+                    <Icon className="mr-2" size={16} />
+                    {tab.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Right Tabs (Store) */}
+            <div className="flex">
+              {tabs.filter(t => t.id === 'store').map(tab => {
+                const Icon = tab.icon;
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`flex items-center px-3 py-4 text-sm font-medium border-b-2 transition-colors ${
+                      activeTab === tab.id
+                        ? 'border-orange-500 text-orange-600'
+                        : 'border-transparent text-orange-500 hover:text-orange-700 hover:border-orange-300'
+                    }`}
+                  >
+                    <Icon className="mr-2" size={16} />
+                    {tab.label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
       </nav>
@@ -210,6 +236,10 @@ function App() {
             selectedDate={selectedDate}
             onDateChange={setSelectedDate}
           />
+        )}
+
+        {activeTab === 'store' && userProfile && (
+          <Store />
         )}
 
         {!userProfile && activeTab !== 'profile' && (
