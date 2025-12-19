@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { Search, X, Check, Utensils, Info } from 'lucide-react';
-import { searchFoodLibrary } from '../services/bmob';
+import { Search, X, Check, Utensils, Info, Camera, Trash2, Image as ImageIcon } from 'lucide-react';
+import { searchFoodLibrary, uploadFile } from '../services/bmob';
+import { compressImage } from '../utils/cropImage';
 import { FoodLibraryItem, FoodItem } from '../types';
 
 interface FoodSearchModalProps {
@@ -32,8 +33,10 @@ const FoodSearchModal: React.FC<FoodSearchModalProps> = ({ isOpen, onClose, onSa
     calories: '',
     protein: '',
     fat: '',
-    carbs: ''
+    carbs: '',
+    image: ''
   });
+  const [uploading, setUploading] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const [baseAmount, setBaseAmount] = useState<number>(100);
@@ -96,6 +99,38 @@ const FoodSearchModal: React.FC<FoodSearchModalProps> = ({ isOpen, onClose, onSa
     handleClose();
   };
 
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      const file = e.target.files[0];
+      setUploading(true);
+      try {
+        // Compress image first
+        const compressedFile = await compressImage(file);
+        
+        let url = '';
+        try {
+             url = await uploadFile(compressedFile);
+        } catch (uploadError: any) {
+             console.warn('Bmob upload failed, trying Base64 fallback', uploadError);
+             // Base64 Fallback
+             url = await new Promise((resolve) => {
+                 const reader = new FileReader();
+                 reader.onloadend = () => resolve(reader.result as string);
+                 reader.readAsDataURL(compressedFile);
+             });
+        }
+        
+        setManualData(prev => ({ ...prev, image: url }));
+      } catch (error) {
+        console.error('Upload failed:', error);
+        alert('图片上传失败');
+      } finally {
+        setUploading(false);
+      }
+      e.target.value = '';
+    }
+  };
+
   const handleManualSubmit = () => {
     if (!manualData.name || !manualData.calories) return;
 
@@ -107,7 +142,8 @@ const FoodSearchModal: React.FC<FoodSearchModalProps> = ({ isOpen, onClose, onSa
       fat: manualData.fat ? Number(manualData.fat) : 0,
       carbs: manualData.carbs ? Number(manualData.carbs) : 0,
       servingSize: '1份',
-      unit: '份'
+      unit: '份',
+      image: manualData.image
     };
 
     onSave(foodItem);
@@ -119,7 +155,7 @@ const FoodSearchModal: React.FC<FoodSearchModalProps> = ({ isOpen, onClose, onSa
     setResults([]);
     setSelectedFood(null);
     setIsManualMode(false);
-    setManualData({ name: '', calories: '', protein: '', fat: '', carbs: '' });
+    setManualData({ name: '', calories: '', protein: '', fat: '', carbs: '', image: '' });
     onClose();
   };
 
@@ -169,6 +205,58 @@ const FoodSearchModal: React.FC<FoodSearchModalProps> = ({ isOpen, onClose, onSa
               </div>
 
               <div className="space-y-4">
+                {/* Image Upload */}
+                <div className="relative">
+                    <div 
+                        className="w-full h-40 bg-gray-100 rounded-xl flex flex-col items-center justify-center cursor-pointer overflow-hidden border-2 border-dashed border-gray-300 hover:border-blue-400 hover:bg-blue-50 transition-all group"
+                        onClick={() => document.getElementById('food-image-upload')?.click()}
+                    >
+                        {manualData.image ? (
+                            <img src={manualData.image} alt="Food" className="w-full h-full object-cover" />
+                        ) : (
+                            <>
+                                {uploading ? (
+                                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mb-2"></div>
+                                ) : (
+                                    <Camera className="text-gray-400 group-hover:text-blue-500 mb-2" size={32} />
+                                )}
+                                <span className="text-sm text-gray-400 group-hover:text-blue-500 font-medium">
+                                    {uploading ? '处理中...' : '点击上传食物照片 (选填)'}
+                                </span>
+                            </>
+                        )}
+                        
+                        {/* Overlay for existing image */}
+                        {manualData.image && !uploading && (
+                            <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                <Camera className="text-white" size={32} />
+                            </div>
+                        )}
+                    </div>
+                    
+                    <input 
+                        id="food-image-upload"
+                        type="file" 
+                        accept="image/*"
+                        hidden
+                        onChange={handleFileChange}
+                        disabled={uploading}
+                    />
+
+                    {/* Delete Button */}
+                    {manualData.image && (
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                setManualData(prev => ({ ...prev, image: '' }));
+                            }}
+                            className="absolute -top-2 -right-2 p-2 bg-red-500 text-white rounded-full shadow-md hover:bg-red-600 transition-colors z-10"
+                        >
+                            <Trash2 size={16} />
+                        </button>
+                    )}
+                </div>
+
                 <div>
                   <label className="block text-sm font-bold text-gray-700 mb-2">食物名称 <span className="text-red-500">*</span></label>
                   <input

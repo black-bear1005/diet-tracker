@@ -1,9 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { format, parseISO, startOfWeek, endOfWeek, eachDayOfInterval, isSameDay, addWeeks, subWeeks, isToday, addDays, subDays } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
 import { DailyRecord, FoodItem, ExerciseItem } from '../types';
 import { updateDailyRecord, getDailyRecord } from '../utils/storage';
 import { estimateExerciseCalories } from '../utils/calculations';
+import { addPoints } from '../services/bmob';
+import { useToast } from './Toast';
 import { Calendar as CalendarIcon, Plus, Trash2, Utensils, Dumbbell, Scale, ChevronLeft, ChevronRight, RotateCcw, Check } from 'lucide-react';
 import FoodSearchModal from './FoodSearchModal';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -15,6 +18,7 @@ interface DailyLoggerProps {
 }
 
 const DailyLogger: React.FC<DailyLoggerProps> = ({ userProfile, selectedDate, onDateChange }) => {
+  const { showToast } = useToast();
   const [dailyRecord, setDailyRecord] = useState<DailyRecord>({
     date: format(selectedDate, 'yyyy-MM-dd'),
     foods: [],
@@ -26,6 +30,7 @@ const DailyLogger: React.FC<DailyLoggerProps> = ({ userProfile, selectedDate, on
   const [isFoodModalOpen, setIsFoodModalOpen] = useState(false);
   const [newExercise, setNewExercise] = useState({ name: '', duration: 0, calories: 0 });
   const [currentWeekStart, setCurrentWeekStart] = useState(startOfWeek(selectedDate, { weekStartsOn: 0 }));
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // 当外部选中的日期变化时，自动跳转到该日期所在的周
@@ -198,8 +203,8 @@ const DailyLogger: React.FC<DailyLoggerProps> = ({ userProfile, selectedDate, on
         <div className="h-px bg-gray-100/50 w-full"></div>
       </div>
 
-      {/* Overview Grid: Net Intake & Weight */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+      {/* Overview Grid: Net Intake */}
+      <div className="mb-6">
         {/* Net Intake Card */}
         <div className="bg-gradient-to-br from-blue-500 to-indigo-600 rounded-2xl p-5 text-white relative overflow-hidden shadow-lg shadow-blue-500/20">
           <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full blur-2xl -mr-10 -mt-10 pointer-events-none" />
@@ -222,32 +227,6 @@ const DailyLogger: React.FC<DailyLoggerProps> = ({ userProfile, selectedDate, on
               </div>
             </div>
           </div>
-        </div>
-
-        {/* Weight Card */}
-        <div className="bg-gradient-to-br from-white to-blue-50/50 border border-gray-100 rounded-2xl p-5 shadow-sm flex flex-col justify-between relative overflow-hidden">
-             <div className="absolute -right-6 -bottom-6 w-32 h-32 text-blue-500/5 rotate-12 pointer-events-none">
-                <Scale className="w-full h-full" />
-             </div>
-             <div className="relative z-10">
-                <h4 className="text-gray-500 text-sm font-medium mb-1 flex items-center gap-2">
-                    今日体重
-                </h4>
-                <div className="flex items-baseline mt-2">
-                    <input
-                        type="number"
-                        inputMode="decimal"
-                        placeholder="0.0"
-                        value={dailyRecord.weight || ''}
-                        onChange={(e) => updateWeight(Number(e.target.value))}
-                        className="text-4xl font-bold text-slate-800 bg-transparent border-none focus:outline-none w-24 p-0 placeholder-gray-200 z-10 relative"
-                    />
-                    <span className="text-gray-400 ml-1">kg</span>
-                </div>
-             </div>
-             <p className="text-xs text-gray-400 mt-2 relative z-10">
-                {dailyRecord.weight ? '已记录' : '建议晨起空腹称重'}
-             </p>
         </div>
       </div>
 
@@ -277,7 +256,9 @@ const DailyLogger: React.FC<DailyLoggerProps> = ({ userProfile, selectedDate, on
         </button>
       </div>
 
-      {/* Content Area */}
+      {/* Weight Card Removed from here */}
+ 
+       {/* Content Area */}
       <AnimatePresence mode="wait">
         {activeTab === 'food' ? (
           <motion.div
@@ -338,8 +319,15 @@ const DailyLogger: React.FC<DailyLoggerProps> = ({ userProfile, selectedDate, on
                 {dailyRecord.foods.map(food => (
                   <div key={food.id} className="group flex justify-between items-center p-2 hover:bg-gray-50 rounded-xl border border-transparent hover:border-gray-100 transition-all">
                     <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-full bg-green-100/50 flex items-center justify-center text-green-600 flex-shrink-0">
-                        <Utensils size={14} />
+                      <div 
+                        className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 overflow-hidden ${food.image ? 'cursor-zoom-in' : 'bg-green-100/50 text-green-600'}`}
+                        onClick={() => food.image && setPreviewImage(food.image)}
+                      >
+                        {food.image ? (
+                          <img src={food.image} alt={food.name} className="w-full h-full object-cover" />
+                        ) : (
+                          <Utensils size={16} />
+                        )}
                       </div>
                       <div>
                         <div className="font-bold text-slate-700 text-sm flex items-center gap-2">
@@ -371,6 +359,7 @@ const DailyLogger: React.FC<DailyLoggerProps> = ({ userProfile, selectedDate, on
                     暂无记录，快去添加第一餐吧
                   </div>
                 )}
+
               </div>
           </motion.div>
         ) : (
@@ -483,11 +472,62 @@ const DailyLogger: React.FC<DailyLoggerProps> = ({ userProfile, selectedDate, on
         )}
       </AnimatePresence>
       
+      {/* Weight Card (Fixed at bottom) */}
+      <div className="bg-gradient-to-br from-white to-blue-50/50 border border-gray-100 rounded-2xl p-5 shadow-sm flex flex-col justify-between relative overflow-hidden mt-6">
+             <div className="absolute -right-6 -bottom-6 w-32 h-32 text-blue-500/5 rotate-12 pointer-events-none">
+                <Scale className="w-full h-full" />
+             </div>
+             <div className="relative z-10">
+                <h4 className="text-gray-500 text-sm font-medium mb-1 flex items-center gap-2">
+                    今日体重
+                </h4>
+                <div className="flex items-baseline mt-2">
+                    <input
+                        type="number"
+                        inputMode="decimal"
+                        placeholder="0.0"
+                        value={dailyRecord.weight || ''}
+                        onChange={(e) => updateWeight(Number(e.target.value))}
+                        className="text-4xl font-bold text-slate-800 bg-transparent border-none focus:outline-none w-24 p-0 placeholder-gray-200 z-10 relative"
+                    />
+                    <span className="text-gray-400 ml-1">kg</span>
+                </div>
+             </div>
+             <p className="text-xs text-gray-400 mt-2 relative z-10">
+                {dailyRecord.weight ? '已记录' : '建议晨起空腹称重'}
+             </p>
+      </div>
+      
       <FoodSearchModal
         isOpen={isFoodModalOpen}
         onClose={() => setIsFoodModalOpen(false)}
         onSave={handleAddFood}
       />
+      
+      {/* Full Screen Image Preview - Portaled to Body */}
+      {createPortal(
+        <AnimatePresence>
+          {previewImage && (
+              <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="fixed inset-0 z-[9999] bg-black/95 flex items-center justify-center p-4 cursor-zoom-out backdrop-blur-sm"
+                  onClick={() => setPreviewImage(null)}
+              >
+                  <motion.img
+                      initial={{ scale: 0.8 }}
+                      animate={{ scale: 1 }}
+                      exit={{ scale: 0.8 }}
+                      src={previewImage}
+                      alt="Food Preview"
+                      className="max-w-full max-h-full object-contain rounded-lg shadow-2xl pointer-events-none"
+                  />
+              </motion.div>
+          )}
+        </AnimatePresence>,
+        document.body
+      )}
     </div>
   );
 };

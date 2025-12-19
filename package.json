@@ -1,7 +1,7 @@
 {
   "name": "trae-project",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -14,9 +14,12 @@
     "deploy": "vite build && gh-pages -d dist -r git@github.com:black-bear1005/diet-tracker.git"
   },
   "dependencies": {
+    "@capacitor-community/file-opener": "^7.0.1",
     "@capacitor/android": "^8.0.0",
     "@capacitor/cli": "^8.0.0",
     "@capacitor/core": "^8.0.0",
+    "@capacitor/filesystem": "^8.0.0",
+    "@capacitor/preferences": "^8.0.0",
     "chart.js": "^4.5.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
@@ -25,6 +28,7 @@
     "react": "^18.3.1",
     "react-chartjs-2": "^5.3.1",
     "react-dom": "^18.3.1",
+    "react-easy-crop": "^5.5.6",
     "react-router-dom": "^7.3.0",
     "tailwind-merge": "^3.0.2",
     "zustand": "^5.0.3"

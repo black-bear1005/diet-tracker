@@ -9,7 +9,7 @@ import {
   BackendTodo, getTodos, addTodo, toggleTodo, deleteTodo, 
   processExpiredTasks, createAssignedTodo, completeTodo, 
   submitTaskCompletion, approveTaskCompletion, rejectTaskCompletion,
-  getCurrentUserId, getOrCreateUserProfile, BackendUserProfile 
+  getCurrentUserId, getOrCreateUserProfile, BackendUserProfile, addPoints
 } from '../services/bmob';
 import { useToast } from './Toast';
 import ConfirmDialog from './ConfirmDialog';
@@ -32,7 +32,11 @@ const TodoList: React.FC<TodoListProps> = ({ selectedDate, onDateChange }) => {
   const [assignee, setAssignee] = useState<'self' | 'partner'>('self');
   const [rewardPoints, setRewardPoints] = useState<number | string>(0);
   const [userProfile, setUserProfile] = useState<BackendUserProfile | null>(null);
-  const currentUserId = getCurrentUserId();
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
+  useEffect(() => {
+    getCurrentUserId().then(setCurrentUserId);
+  }, []);
 
   // Dialog State
   const [dialogState, setDialogState] = useState<{
@@ -215,10 +219,21 @@ const TodoList: React.FC<TodoListProps> = ({ selectedDate, onDateChange }) => {
         
         if (isCompleting) {
             await completeTodo(todo);
+            
+            // New Feature: +10 points for completing self-task
+            // Only if it's not a bounty task (or maybe always? User said "情侣悬赏任务不变", implying self tasks get 10)
+            // Assuming self tasks always get 10 points system reward.
+            await addPoints(10, '完成待办');
+            showToast('完成任务 +10 积分', 'success');
+
             // If points involved (self-reward?), refresh profile
             if (todo.rewardPoints && todo.rewardPoints > 0) {
                 const profile = await getOrCreateUserProfile();
                 setUserProfile(profile);
+            } else {
+                 // Refresh profile to show new system points
+                 const profile = await getOrCreateUserProfile();
+                 setUserProfile(profile);
             }
         } else {
             // Revert to pending

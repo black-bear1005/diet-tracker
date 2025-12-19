@@ -1,11 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import type { UserProfile as UserProfileType, CalculatedMetrics } from '../types';
 import { calculateMetrics } from '../utils/calculations';
-import { saveUserProfile } from '../utils/storage';
+import { saveUserProfile, updateUserAvatar } from '../utils/storage';
 import { bindPartner, uploadFile } from '../services/bmob';
-import { User, Activity, Heart, Coins, Link as LinkIcon, Edit2, Check, Ruler, Weight, Scale, Flame, Camera, Trash2 } from 'lucide-react';
+import { User, Activity, Heart, Coins, Link as LinkIcon, Edit2, Check, Ruler, Weight, Scale, Flame, Camera, Trash2, X, ZoomIn, ZoomOut } from 'lucide-react';
 import { useToast } from './Toast';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
+import Cropper from 'react-easy-crop';
+import getCroppedImg from '../utils/cropImage';
 
 interface UserProfileProps {
   profile: UserProfileType | null;
@@ -43,6 +46,13 @@ const UserProfile: React.FC<UserProfileProps> = ({ profile, onProfileUpdate }) =
   const [bindingLoading, setBindingLoading] = useState(false);
   const [bindError, setBindError] = useState('');
 
+  // Cropper State
+  const [cropImageSrc, setCropImageSrc] = useState<string | null>(null);
+  const [crop, setCrop] = useState({ x: 0, y: 0 });
+  const [zoom, setZoom] = useState(1);
+  const [croppedAreaPixels, setCroppedAreaPixels] = useState<any>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   useEffect(() => {
     if (profile) {
       setFormData({
@@ -54,20 +64,85 @@ const UserProfile: React.FC<UserProfileProps> = ({ profile, onProfileUpdate }) =
       setMetrics(calculatedMetrics);
     }
   }, [profile]);
+  
+  // Refresh points when entering profile page
+  // Note: This logic is now handled in MainApp.tsx's handleTabChange
+  // But keeping it here for safety if component is mounted independently or on refresh
+  useEffect(() => {
+     // ...
+  }, []);
 
-  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const onCropComplete = (croppedArea: any, croppedAreaPixels: any) => {
+    setCroppedAreaPixels(croppedAreaPixels);
+  };
 
-    if (file.size > 2 * 1024 * 1024) {
-        showToast('图片大小不能超过 2MB', 'error');
-        return;
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      const file = e.target.files[0];
+      if (file.size > 20 * 1024 * 1024) { // 20MB limit (compressed later)
+         showToast('图片大小不能超过 20MB', 'error');
+         return;
+      }
+      const reader = new FileReader();
+      reader.addEventListener('load', () => {
+        setCropImageSrc(reader.result?.toString() || null);
+        setZoom(1);
+        setCrop({ x: 0, y: 0 });
+      });
+      reader.readAsDataURL(file);
+      // Reset input value to allow selecting the same file again
+      e.target.value = '';
     }
+  };
 
+  const handleCropCancel = () => {
+      setCropImageSrc(null);
+      setCrop({ x: 0, y: 0 });
+      setZoom(1);
+  };
+
+  const handleCropConfirm = async () => {
+    if (!cropImageSrc || !croppedAreaPixels) return;
+    
     setUploading(true);
     try {
-        const url = await uploadFile(file);
+        const croppedBlob = await getCroppedImg(cropImageSrc, croppedAreaPixels);
+        if (!croppedBlob) throw new Error('Crop failed');
+
+        let url = '';
+        try {
+            // Create a File from Blob
+            const file = new File([croppedBlob], `avatar_${Date.now()}.jpg`, { type: 'image/jpeg' });
+            // Attempt Upload
+            url = await uploadFile(file);
+        } catch (uploadError: any) {
+            console.warn('Bmob 文件服务不可用，降级使用 Base64 存储:', uploadError);
+            
+            // 如果是因为没有域名 (10007)，则降级为 Base64
+            // 将 Blob 转换为 Base64
+            url = await new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result as string);
+                reader.readAsDataURL(croppedBlob);
+            });
+            
+            // 简单的 Base64 长度检查，防止数据库爆字段 (虽然 Bmob String 应该能存)
+            if (url.length > 100000) {
+                // 如果图片太大，可能需要进一步压缩 (前端压缩逻辑可以在 getCroppedImg 里优化，这里先提示)
+                console.warn('Base64 图片过大，可能会导致存储失败');
+            }
+        }
+        
         setFormData(prev => ({ ...prev, avatarUrl: url }));
+        
+        // Auto-save avatar
+        if (profile) {
+            await updateUserAvatar(url);
+            onProfileUpdate({ ...profile, avatarUrl: url });
+        }
+        
+        // Close cropper
+        setCropImageSrc(null);
         showToast('头像上传成功', 'success');
     } catch (error: any) {
         console.error('Avatar upload failed:', error);
@@ -404,7 +479,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ profile, onProfileUpdate }) =
                     type="file" 
                     accept="image/*"
                     hidden
-                    onChange={handleAvatarUpload}
+                    onChange={handleFileChange}
                     disabled={uploading}
                 />
 
@@ -569,6 +644,77 @@ const UserProfile: React.FC<UserProfileProps> = ({ profile, onProfileUpdate }) =
           {profile ? '保存修改' : '创建档案'}
         </motion.button>
       </form>
+
+      {/* Cropper Modal - Portaled to body to avoid stacking context issues */}
+      {createPortal(
+        <AnimatePresence>
+          {cropImageSrc && (
+            <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="fixed inset-0 z-[9999] bg-black/95 flex flex-col h-[100dvh]"
+                onClick={(e) => e.stopPropagation()}
+            >
+                {/* Safe Area Top Spacer */}
+                <div className="pt-safe-top bg-black" />
+
+                <div className="flex-1 relative w-full bg-black overflow-hidden">
+                    <Cropper
+                        image={cropImageSrc}
+                        crop={crop}
+                        zoom={zoom}
+                        aspect={1}
+                        onCropChange={setCrop}
+                        onCropComplete={onCropComplete}
+                        onZoomChange={setZoom}
+                        cropShape="round"
+                        showGrid={false}
+                    />
+                </div>
+                
+                <div className="flex-none w-full bg-white px-6 pt-8 pb-safe-bottom rounded-t-3xl shadow-2xl z-50">
+                    <div className="flex items-center gap-4 mb-8">
+                        <ZoomOut size={20} className="text-gray-400" />
+                        <input
+                            type="range"
+                            value={zoom}
+                            min={1}
+                            max={3}
+                            step={0.1}
+                            aria-labelledby="Zoom"
+                            onChange={(e) => setZoom(Number(e.target.value))}
+                            className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                        />
+                        <ZoomIn size={20} className="text-gray-400" />
+                    </div>
+                    
+                    <div className="flex gap-4 mb-12">
+                        <button
+                            onClick={handleCropCancel}
+                            disabled={uploading}
+                            className="flex-1 py-3 px-4 rounded-xl font-bold bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors"
+                        >
+                            取消
+                        </button>
+                        <button
+                            onClick={handleCropConfirm}
+                            disabled={uploading}
+                            className="flex-1 py-3 px-4 rounded-xl font-bold bg-blue-600 text-white shadow-lg shadow-blue-500/30 hover:bg-blue-700 transition-colors flex items-center justify-center"
+                        >
+                            {uploading ? (
+                                <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                            ) : (
+                                '确认并上传'
+                            )}
+                        </button>
+                    </div>
+                </div>
+            </motion.div>
+          )}
+        </AnimatePresence>,
+        document.body
+      )}
     </motion.div>
   );
 };

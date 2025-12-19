@@ -56,7 +56,8 @@ const mapBackendProfileToUserProfile = async (): Promise<UserProfile> => {
     points: p.points ?? 100,
     nickname: p.nickname,
     avatarUrl: p.avatarUrl,
-    username: p.username
+    username: p.username,
+    createdAt: p.createdAt
   };
 };
 
@@ -70,7 +71,8 @@ const mapBackendDailyToRecord = (d: any): DailyRecord => {
         fat: it.fat ? Number(it.fat) : undefined,
         carbs: it.carbs ? Number(it.carbs) : undefined,
         servingSize: it.servingSize,
-        unit: it.unit
+        unit: it.unit,
+        image: it.image
       }))
     : [];
 
@@ -102,7 +104,8 @@ const mapRecordToBackendDailyFields = (record: DailyRecord) => {
       fat: f.fat,
       carbs: f.carbs,
       servingSize: f.servingSize,
-      unit: f.unit
+      unit: f.unit,
+      image: f.image
     })),
     exercise: (record.exercises || []).map(e => ({ type: e.name, mins: e.duration, kcal: e.calories }))
   };
@@ -112,12 +115,12 @@ export const loadUserProfile = async (): Promise<UserProfile | null> => {
   if (!isBmobReady()) return null;
   try {
     // 仅在已登录情况下加载
-    if (!getCurrentUser()) return null;
+    if (!(await getCurrentUser())) return null;
     return await mapBackendProfileToUserProfile();
   } catch (error: any) {
     console.error('Error loading user profile from Bmob:', error);
     if (error?.status === 401 || String(error?.message || '').includes('401')) {
-      logout();
+      await logout();
       return null;
     }
     return null;
@@ -143,6 +146,17 @@ export const saveUserProfile = async (profile: UserProfile): Promise<void> => {
     });
   } catch (error) {
     console.error('Error saving user profile to Bmob:', error);
+  }
+};
+
+export const updateUserAvatar = async (avatarUrl: string): Promise<void> => {
+  if (!isBmobReady()) return;
+  try {
+    const backend = await getOrCreateUserProfileBackend();
+    await updateUserProfileFields(backend, { avatarUrl });
+  } catch (error) {
+    console.error('Error updating avatar:', error);
+    throw error;
   }
 };
 
@@ -173,7 +187,7 @@ export const getDailyRecord = async (date: string): Promise<DailyRecord | undefi
 export const updateDailyRecord = async (record: DailyRecord): Promise<void> => {
   if (!isBmobReady()) return;
   try {
-    if (!getCurrentUser()) return;
+    if (!(await getCurrentUser())) return;
     const daily = await getOrCreateDailyLogBackend(record.date);
     const fields = mapRecordToBackendDailyFields(record);
     await updateDailyLogFields(daily, fields as any);

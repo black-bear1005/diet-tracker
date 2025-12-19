@@ -2,6 +2,7 @@ export interface UserProfile {
   username?: string; // Login ID (Unique)
   nickname?: string; // Display Name
   avatarUrl?: string; // Avatar Image URL
+  createdAt?: string;
   gender: 'male' | 'female';
   age: number;
   height: number; // cm
@@ -23,6 +24,7 @@ export interface FoodItem {
   carbs?: number;
   servingSize?: string; // e.g. "1.5份" or "150克"
   unit?: string;
+  image?: string; // Image URL or Base64
 }
 
 export interface FoodLibraryItem {

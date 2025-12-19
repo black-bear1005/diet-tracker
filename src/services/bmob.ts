@@ -1,3 +1,5 @@
+import { Preferences } from '@capacitor/preferences';
+
 // 🔴 Bmob 密钥 (已确认无误)
 const APP_ID = "75f9def7af7038fab8272695bd821027";
 const API_KEY = "153c3d8f39a138fd49e6af03586e1501";
@@ -14,6 +16,18 @@ const LS_KEYS = {
   currentUserId: 'bmob_current_user_id',
   currentUserCompatId: 'bmob_user_id',
   currentUser: 'bmob_current_user'
+};
+
+// Storage Helpers
+const getStorageItem = async (key: string): Promise<string | null> => {
+  const { value } = await Preferences.get({ key });
+  return value;
+};
+const setStorageItem = async (key: string, value: string) => {
+  await Preferences.set({ key, value });
+};
+const removeStorageItem = async (key: string) => {
+  await Preferences.remove({ key });
 };
 
 export const isBmobReady = (): boolean => !!APP_ID && !!API_KEY;
@@ -35,6 +49,9 @@ export interface BackendUserProfile {
   partnerId?: string;
   partnerName?: string;
   points?: number;
+  lastLoginRewardDate?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface BackendDailyLog {
@@ -43,7 +60,7 @@ export interface BackendDailyLog {
   user?: { __type: 'Pointer'; className: '_User'; objectId: string };
   date: string;
   weight?: number | null;
-  foodIntake: Array<{ name: string; kcal: number }>;
+  foodIntake: Array<{ name: string; kcal: number; protein?: number; fat?: number; carbs?: number; unit?: string; servingSize?: string; image?: string }>;
   exercise: Array<{ type?: string; name?: string; mins?: number; kcal: number }>;
 }
 
@@ -59,43 +76,51 @@ export interface BackendNotification {
     createdAt?: string;
 }
 
-const getSessionToken = () => { try { return localStorage.getItem(LS_KEYS.sessionToken); } catch { return null; } };
-export const getCurrentUserId = () => {
-  try { return localStorage.getItem(LS_KEYS.currentUserId) || localStorage.getItem(LS_KEYS.currentUserCompatId); } catch { return null; }
+const getSessionToken = async () => { try { return await getStorageItem(LS_KEYS.sessionToken); } catch { return null; } };
+
+export const getCurrentUserId = async () => {
+  try { 
+    const id = await getStorageItem(LS_KEYS.currentUserId);
+    if (id) return id;
+    return await getStorageItem(LS_KEYS.currentUserCompatId);
+  } catch { return null; }
 };
 
-export const logout = () => {
+export const logout = async () => {
   console.log('[Auth] 登出清理...');
   try {
-    localStorage.removeItem(LS_KEYS.sessionToken);
-    localStorage.removeItem(LS_KEYS.currentUserId);
-    localStorage.removeItem(LS_KEYS.currentUserCompatId);
-    localStorage.removeItem(LS_KEYS.currentUser);
+    await removeStorageItem(LS_KEYS.sessionToken);
+    await removeStorageItem(LS_KEYS.currentUserId);
+    await removeStorageItem(LS_KEYS.currentUserCompatId);
+    await removeStorageItem(LS_KEYS.currentUser);
   } catch {}
 };
 
-const setSession = (user: any) => {
+const setSession = async (user: any) => {
   console.log('[Auth] 设置新身份 ID:', user.objectId);
   try {
-    logout(); 
-    if (user?.sessionToken) localStorage.setItem(LS_KEYS.sessionToken, user.sessionToken);
+    await logout(); 
+    if (user?.sessionToken) await setStorageItem(LS_KEYS.sessionToken, user.sessionToken);
     if (user?.objectId) {
-      localStorage.setItem(LS_KEYS.currentUserId, user.objectId);
-      localStorage.setItem(LS_KEYS.currentUserCompatId, user.objectId);
+      await setStorageItem(LS_KEYS.currentUserId, user.objectId);
+      await setStorageItem(LS_KEYS.currentUserCompatId, user.objectId);
     }
-    localStorage.setItem(LS_KEYS.currentUser, JSON.stringify(user || {}));
+    await setStorageItem(LS_KEYS.currentUser, JSON.stringify(user || {}));
   } catch (e) {
     console.error('[Auth] Session error:', e);
   }
 };
 
-export const getCurrentUser = () => {
-  try { const d = localStorage.getItem(LS_KEYS.currentUser); return d ? JSON.parse(d) : null; } catch { return null; }
+export const getCurrentUser = async () => {
+  try { 
+    const d = await getStorageItem(LS_KEYS.currentUser); 
+    return d ? JSON.parse(d) : null; 
+  } catch { return null; }
 };
 
 const rest = async (path: string, init: RequestInit = {}) => {
   if (!isBmobReady()) throw new Error('Bmob Config Missing');
-  const token = getSessionToken();
+  const token = await getSessionToken();
   
   // 1. 干净的请求头，不加可能导致 500 的自定义头
   const headers = {
@@ -126,7 +151,7 @@ const rest = async (path: string, init: RequestInit = {}) => {
     try {
       const errObj = JSON.parse(text);
       if (errObj.code === 101) throw new Error(`BMOB_CLASS_NOT_FOUND: ${path}`);
-      if (res.status === 401) logout();
+      if (res.status === 401) await logout();
       throw new Error(`Bmob Error ${res.status} [${path}]: ${errObj.error || text}`);
     } catch (e: any) {
       if (e.message.includes('BMOB_CLASS_NOT_FOUND')) throw e;
@@ -147,40 +172,91 @@ const safeQuery = async (path: string) => {
 export const uploadFile = async (file: File): Promise<string> => {
   if (!isBmobReady()) throw new Error('Bmob Config Missing');
   
-  // 1. 文件名编码，防止中文乱码
-  const filename = encodeURIComponent(file.name);
-  
-  // 2. 直接调用 Bmob 文件上传接口
-  // POST /2/files/:filename
-  const url = `${BMOB_HOST}/2/files/${filename}`;
-  
-  const headers = {
-    'X-Bmob-Application-Id': APP_ID,
-    'X-Bmob-REST-API-Key': API_KEY,
-    'Content-Type': file.type,
-  };
+  try {
+    // 1. 文件名编码，防止中文乱码
+    const filename = encodeURIComponent(file.name);
+    
+    // 2. 直接调用 Bmob 文件上传接口
+    // POST /2/files/:filename
+    const url = `${BMOB_HOST}/2/files/${filename}`;
+    
+    const headers = {
+      'X-Bmob-Application-Id': APP_ID,
+      'X-Bmob-REST-API-Key': API_KEY,
+      'Content-Type': file.type,
+    };
 
-  const res = await fetch(url, {
-    method: 'POST',
-    headers,
-    body: file
-  });
+    const res = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: await file.arrayBuffer()
+    });
 
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`File Upload Error ${res.status}: ${text}`);
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`File Upload Error ${res.status}: ${text}`);
+    }
+
+    const data = await res.json();
+    
+    // 检查业务错误 (如 10007 域名未绑定)
+    if (data.code && data.error) {
+        throw new Error(data.error);
+    }
+
+    // Bmob 返回格式: { "filename": "...", "url": "http://..." }
+    // 确保返回 https 链接
+    let fileUrl = data.url;
+    // Bmob 有时返回 url，有时返回 cdn 字段，优先取 url
+    if (!fileUrl && data.cdn) {
+        fileUrl = data.cdn;
+    }
+    // 兜底：如果都没有，尝试手动拼接
+    if (!fileUrl && data.filename && data.url) {
+        // 这种情况比较少见，通常 url 字段是完整的
+        fileUrl = data.url;
+    }
+    
+    if (fileUrl) {
+        // 强制升级 https
+        if (fileUrl.startsWith('http://')) {
+            fileUrl = fileUrl.replace('http://', 'https://');
+        }
+        // 修复 Bmob 有时返回不带协议头的 URL (e.g. "bmob-cdn-xxxxx.b0.upaiyun.com/...")
+        else if (!fileUrl.startsWith('http')) {
+            fileUrl = `https://${fileUrl}`;
+        }
+    }
+
+    console.log('🖼️ [Upload] Bmob Response:', data);
+    console.log('🖼️ [Upload] Final URL:', fileUrl);
+
+    return fileUrl || '';
+  } catch (error) {
+    console.warn('⚠️ [Upload] Bmob upload failed (likely no domain), falling back to Base64:', error);
+    
+    // Fallback: Convert to Base64
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+            const base64 = reader.result as string;
+            // Check size warning (Bmob string field limit is usually generous but good to be aware)
+            if (base64.length > 500 * 1024) { // 500KB warning
+                console.warn('⚠️ [Upload] Base64 string is large (' + Math.round(base64.length/1024) + 'KB). Might exceed field limits.');
+            }
+            resolve(base64);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+    });
   }
-
-  const data = await res.json();
-  // Bmob 返回格式: { "filename": "...", "url": "http://..." }
-  return data.url;
 };
 
 // ==================== 业务逻辑 (保持 userId 绑定) ====================
 
 export const getOrCreateUserProfile = async (): Promise<BackendUserProfile> => {
-  const uid = getCurrentUserId();
-  const currentUser = getCurrentUser();
+  const uid = await getCurrentUserId();
+  const currentUser = await getCurrentUser();
   console.log('🔍 [Profile] 查询身份:', uid);
   if (!uid) throw new Error('User not logged in');
 
@@ -275,7 +351,7 @@ export const updateUserProfileFields = async (
   profile: BackendUserProfile,
   fields: Partial<BackendUserProfile>
 ) => {
-  const uid = getCurrentUserId();
+  const uid = await getCurrentUserId();
   if (!uid) throw new Error('User not logged in');
   
   // 再次校验所有权
@@ -297,7 +373,7 @@ export const updateUserProfileFields = async (
 };
 
 export const getOrCreateDailyLog = async (date: string): Promise<BackendDailyLog> => {
-  const uid = getCurrentUserId();
+  const uid = await getCurrentUserId();
   if (!uid) throw new Error('User not logged in');
 
   const queryObj = {
@@ -335,7 +411,7 @@ export const updateDailyLogFields = async (
   daily: BackendDailyLog,
   fields: Partial<BackendDailyLog>
 ) => {
-  const uid = getCurrentUserId();
+  const uid = await getCurrentUserId();
   if (!uid) throw new Error('User not logged in');
   
   // 客户端校验
@@ -357,7 +433,7 @@ export const updateDailyLogFields = async (
 };
 
 export const fetchAllDailyLogs = async (limit = 120): Promise<BackendDailyLog[]> => {
-  const uid = getCurrentUserId();
+  const uid = await getCurrentUserId();
   if (!uid) return [];
   
   const query = encodeURIComponent(JSON.stringify({
@@ -373,10 +449,10 @@ export const fetchAllDailyLogs = async (limit = 120): Promise<BackendDailyLog[]>
 
 // Auth
 export const login = async (username: string, password: string) => {
-  logout();
+  await logout();
   const params = new URLSearchParams({ username, password });
   const user = await rest(`/login?${params.toString()}`, { method: 'GET' });
-  setSession(user);
+  await setSession(user);
   return user;
 };
 
@@ -493,7 +569,7 @@ export interface BackendTodo {
 }
 
 export const getTodos = async (date: string): Promise<BackendTodo[]> => {
-  const uid = getCurrentUserId();
+  const uid = await getCurrentUserId();
   if (!uid) return [];
 
   // 查询：我是创建者 OR 我是执行者
@@ -525,7 +601,7 @@ export const addTodo = async (date: string, content: string): Promise<BackendTod
       date,
       content,
       rewardPoints: 0,
-      assigneeId: getCurrentUserId()
+      assigneeId: await getCurrentUserId() || undefined
   });
 };
 
@@ -535,7 +611,7 @@ export const createAssignedTodo = async (todoData: {
     rewardPoints: number; 
     assigneeId?: string; 
 }): Promise<BackendTodo> => {
-  const uid = getCurrentUserId();
+  const uid = await getCurrentUserId();
   if (!uid) throw new Error('User not logged in');
 
   const assigneeId = todoData.assigneeId || uid;
@@ -594,7 +670,7 @@ export const toggleTodo = async (todo: BackendTodo): Promise<void> => {
 
 export const submitTaskCompletion = async (todo: BackendTodo): Promise<void> => {
     if (!todo.objectId) return;
-    const uid = getCurrentUserId();
+    const uid = await getCurrentUserId();
     if (!uid) throw new Error('Not logged in');
 
     // 只有 assignee 可以提交任务
@@ -613,7 +689,7 @@ export const submitTaskCompletion = async (todo: BackendTodo): Promise<void> => 
     // 通知创建者 (如果不是自己)
     if (todo.creatorId && todo.creatorId !== uid) {
         try {
-            const currentUser = getCurrentUser();
+            const currentUser = await getCurrentUser();
             await sendNotification(
                 todo.creatorId,
                 'task_submitted',
@@ -629,7 +705,7 @@ export const submitTaskCompletion = async (todo: BackendTodo): Promise<void> => 
 
 export const approveTaskCompletion = async (todo: BackendTodo): Promise<void> => {
     if (!todo.objectId) return;
-    const uid = getCurrentUserId();
+    const uid = await getCurrentUserId();
     if (!uid) throw new Error('Not logged in');
 
     // 只有 creator 可以验收任务
@@ -692,7 +768,7 @@ export const approveTaskCompletion = async (todo: BackendTodo): Promise<void> =>
 
 export const rejectTaskCompletion = async (todo: BackendTodo): Promise<void> => {
     if (!todo.objectId) return;
-    const uid = getCurrentUserId();
+    const uid = await getCurrentUserId();
     if (!uid) throw new Error('Not logged in');
 
     if (todo.creatorId && todo.creatorId !== uid) {
@@ -732,7 +808,7 @@ export const completeTodo = async (todo: BackendTodo): Promise<void> => {
   // 如果是 Creator 自己完成自己的任务，直接 complete
   // 如果是 Assignee 完成 Partner 的任务，走 submit
   
-  const uid = getCurrentUserId();
+  const uid = await getCurrentUserId();
   if (!uid) throw new Error('Not logged in');
 
   if (todo.creatorId && todo.assigneeId && todo.creatorId !== todo.assigneeId) {
@@ -769,8 +845,8 @@ export const completeTodo = async (todo: BackendTodo): Promise<void> => {
 };
 
 export const bindPartner = async (targetUsername: string): Promise<void> => {
-    const currentUser = getCurrentUser();
-    const uid = getCurrentUserId();
+    const currentUser = await getCurrentUser();
+    const uid = await getCurrentUserId();
     if (!currentUser || !uid) throw new Error('未登录');
 
     // 🔴 防止绑定自己 (用户名检查)
@@ -823,8 +899,8 @@ export const bindPartner = async (targetUsername: string): Promise<void> => {
 };
 
 export const confirmBind = async (requesterId: string, notificationId: string, requesterName: string): Promise<void> => {
-    const currentUserId = getCurrentUserId();
-    const currentUser = getCurrentUser(); 
+    const currentUserId = await getCurrentUserId();
+    const currentUser = await getCurrentUser(); 
     
     if (!currentUserId) throw new Error('未登录');
 
@@ -868,7 +944,7 @@ export const confirmBind = async (requesterId: string, notificationId: string, r
 };
 
 export const finalizeBind = async (partnerId: string, partnerName: string, notificationId: string): Promise<void> => {
-    const uid = getCurrentUserId();
+    const uid = await getCurrentUserId();
     if (!uid) throw new Error('Not logged in');
 
     // 尝试获取对方真实昵称 (从 User 表)
@@ -907,7 +983,7 @@ export interface InventoryItem {
 
 
 export const processExpiredTasks = async (): Promise<void> => {
-    const uid = getCurrentUserId();
+    const uid = await getCurrentUserId();
     if (!uid) return;
 
     const todayStr = new Date().toISOString().split('T')[0];
@@ -998,7 +1074,7 @@ export const processExpiredTasks = async (): Promise<void> => {
 };
 
 export const deleteTodo = async (id: string): Promise<void> => {
-  const uid = getCurrentUserId();
+  const uid = await getCurrentUserId();
   if (!uid) throw new Error('FORBIDDEN');
   
   // 可以在这里先 get 一次检查权限，或者直接 delete (Bmob ACL 会拦截)
@@ -1009,7 +1085,7 @@ export const deleteTodo = async (id: string): Promise<void> => {
 };
 
 export const buyItem = async (itemId: string, cost: number): Promise<void> => {
-    const uid = getCurrentUserId();
+    const uid = await getCurrentUserId();
     if (!uid) throw new Error('Not logged in');
 
     const itemInfo = SHOP_ITEMS.find(i => i.id === itemId);
@@ -1058,7 +1134,7 @@ export const buyItem = async (itemId: string, cost: number): Promise<void> => {
 };
 
 export const getMyInventory = async (): Promise<InventoryItem[]> => {
-    const uid = getCurrentUserId();
+    const uid = await getCurrentUserId();
     if (!uid) return [];
 
     const query = encodeURIComponent(JSON.stringify({
@@ -1070,7 +1146,7 @@ export const getMyInventory = async (): Promise<InventoryItem[]> => {
 };
 
 export const useItem = async (inventoryId: string, itemId: string): Promise<void> => {
-    const uid = getCurrentUserId();
+    const uid = await getCurrentUserId();
     if (!uid) throw new Error('Not logged in');
 
     const profile = await getOrCreateUserProfile();
@@ -1117,14 +1193,14 @@ export const useItem = async (inventoryId: string, itemId: string): Promise<void
 };
 
 export const register = async (username: string, password: string, email?: string) => {
-  logout();
+  await logout();
   const user = await rest('/users', {
     method: 'POST',
     body: JSON.stringify({ username, password, ...(email ? { email } : {}) })
   });
   // 手动补充 username，因为注册接口可能不返回它，导致首次登录时 username 为 undefined
   const userWithInfo = { ...user, username, ...(email ? { email } : {}) };
-  setSession(userWithInfo);
+  await setSession(userWithInfo);
   return userWithInfo;
 };
 
@@ -1138,7 +1214,7 @@ export const sendNotification = async (
     relatedId?: string,
     extraData?: any
 ): Promise<void> => {
-    const uid = getCurrentUserId();
+    const uid = await getCurrentUserId();
     if (!uid) throw new Error('Not logged in');
 
     // 只有目标用户可读写 (ACL)
@@ -1165,7 +1241,7 @@ export const sendNotification = async (
 };
 
 export const getMyNotifications = async (limit = 20): Promise<BackendNotification[]> => {
-    const uid = getCurrentUserId();
+    const uid = await getCurrentUserId();
     if (!uid) return [];
 
     const query = encodeURIComponent(JSON.stringify({ userId: uid }));
@@ -1183,7 +1259,7 @@ export const markNotificationAsRead = async (id: string): Promise<void> => {
 };
 
 export const markAllNotificationsAsRead = async (): Promise<void> => {
-    const uid = getCurrentUserId();
+    const uid = await getCurrentUserId();
     if (!uid) return;
 
     // Bmob 不支持直接 update where，只能先查后更
@@ -1208,4 +1284,182 @@ export const markAllNotificationsAsRead = async (): Promise<void> => {
 
 export const deleteNotification = async (id: string): Promise<void> => {
     await rest(`/classes/Notification/${id}`, { method: 'DELETE' });
+};
+
+// ==================== 管理后台 API ====================
+
+// 获取所有用户 (分页)
+export const getAllUsers = async (skip = 0, limit = 20) => {
+  // 注意：查询 _User 表通常需要 Master Key 或特殊的 ACL 设置
+  // 这里尝试直接查询，如果受限可能需要云函数
+  const list = await safeQuery(`/users?limit=${limit}&skip=${skip}&order=-createdAt`);
+  return list.results || [];
+};
+
+// 封禁/解封用户
+export const updateUserStatus = async (userId: string, isBanned: boolean) => {
+  return await rest(`/users/${userId}`, {
+    method: 'PUT',
+    body: JSON.stringify({ isBanned })
+  });
+};
+
+// 获取所有食物 (分页)
+export const getAllFoods = async (skip = 0, limit = 20) => {
+  const list = await safeQuery(`/classes/FoodLibrary?limit=${limit}&skip=${skip}&order=-createdAt`);
+  return list.results || [];
+};
+
+// 添加食物
+export const addFoodToLibrary = async (food: FoodLibraryItem) => {
+  return await rest('/classes/FoodLibrary', {
+    method: 'POST',
+    body: JSON.stringify({
+      ...food,
+      ACL: { "*": { "read": true }, "role:admin": { "write": true } } // 公开读，管理员写
+    })
+  });
+};
+
+// 删除食物
+export const deleteFoodFromLibrary = async (objectId: string) => {
+  return await rest(`/classes/FoodLibrary/${objectId}`, {
+    method: 'DELETE'
+  });
+};
+
+// 版本管理接口
+export interface AppVersion {
+  objectId?: string;
+  version: string;
+  updateContent: string;
+  downloadUrl: string;
+  forceUpdate: boolean;
+  platform: 'android' | 'ios';
+  createdAt?: string;
+}
+
+export const getLatestVersion = async (platform: 'android' | 'ios' = 'android'): Promise<AppVersion | null> => {
+  const query = encodeURIComponent(JSON.stringify({ platform }));
+  const list = await safeQuery(`/classes/AppVersion?where=${query}&order=-createdAt&limit=1`);
+  if (Array.isArray(list.results) && list.results.length > 0) {
+    return list.results[0];
+  }
+  return null;
+};
+
+export const getAllVersions = async (): Promise<AppVersion[]> => {
+    const list = await safeQuery(`/classes/AppVersion?order=-createdAt&limit=50`);
+    return list.results || [];
+};
+
+export const releaseNewVersion = async (version: AppVersion) => {
+  return await rest('/classes/AppVersion', {
+    method: 'POST',
+    body: JSON.stringify({
+      ...version,
+      ACL: { "*": { "read": true }, "role:admin": { "write": true } }
+    })
+  });
+};
+
+// ==================== Admin Extensions ====================
+
+// 1. Dashboard Stats
+export const getDashboardStats = async () => {
+    try {
+        // Parallel requests
+        const [users, foods, logs] = await Promise.all([
+            safeQuery('/classes/UserProfile_v2?count=1&limit=0'),
+            safeQuery('/classes/FoodLibrary?count=1&limit=0'),
+            safeQuery(`/classes/DailyLog_v2?where=${encodeURIComponent(JSON.stringify({
+                date: new Date().toISOString().split('T')[0]
+            }))}&count=1&limit=0`)
+        ]);
+        
+        return {
+            userCount: users.count || 0,
+            foodCount: foods.count || 0,
+            todayActive: logs.count || 0
+        };
+    } catch (e) {
+        console.error('Failed to fetch stats', e);
+        return { userCount: 0, foodCount: 0, todayActive: 0 };
+    }
+};
+
+// 2. User Management (Enhanced)
+// Fetch Profiles instead of raw Users
+export const getAllUserProfiles = async (skip = 0, limit = 20) => {
+    const list = await safeQuery(`/classes/UserProfile_v2?limit=${limit}&skip=${skip}&order=-createdAt`);
+    return list.results || [];
+};
+
+// Delete User Profile (Soft delete user)
+export const deleteUserProfile = async (objectId: string) => {
+    return await rest(`/classes/UserProfile_v2/${objectId}`, {
+        method: 'DELETE'
+    });
+};
+
+// Update User Profile (Admin)
+export const updateUserProfileAsAdmin = async (objectId: string, data: Partial<BackendUserProfile>) => {
+    return await rest(`/classes/UserProfile_v2/${objectId}`, {
+        method: 'PUT',
+        body: JSON.stringify(data)
+    });
+};
+
+// ==================== Points System ====================
+
+export const addPoints = async (amount: number, reason: string) => {
+    try {
+        const profile = await getOrCreateUserProfile();
+        if (!profile.objectId) return;
+
+        const currentPoints = profile.points || 0;
+        const newPoints = currentPoints + amount;
+
+        await updateUserProfileFields(profile, { points: newPoints });
+        console.log(`[Points] Added ${amount} for ${reason}. New total: ${newPoints}`);
+        
+        // Send notification to user
+        await sendNotification(
+            profile.userId,
+            'system',
+            '积分奖励',
+            `${reason}，积分 +${amount}`,
+            undefined
+        );
+        
+        return newPoints;
+    } catch (e) {
+        console.error('Failed to add points', e);
+        throw e;
+    }
+};
+
+export const checkAndGiveLoginReward = async (): Promise<number | null> => {
+    try {
+        const profile = await getOrCreateUserProfile();
+        if (!profile.objectId) return null;
+
+        const today = new Date().toISOString().split('T')[0];
+        if (profile.lastLoginRewardDate === today) {
+            return null; // Already rewarded today
+        }
+
+        // Generate random points 50-100
+        const reward = Math.floor(Math.random() * (100 - 50 + 1)) + 50;
+
+        await updateUserProfileFields(profile, { 
+            points: (profile.points || 0) + reward,
+            lastLoginRewardDate: today
+        });
+        
+        return reward;
+    } catch (e) {
+        console.error('Login reward check failed', e);
+        return null;
+    }
 };
